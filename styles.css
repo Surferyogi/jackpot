@@ -187,6 +187,15 @@ header h1{
 .payRow .pvals{font-size:14px; color:var(--goldhi); font-variant-numeric:tabular-nums; margin-top:2px; line-height:1.4}
 .payRow .pnote{font-size:12.5px; color:var(--muted); margin-top:2px; line-height:1.35}
 
+/* sticky sheet header with the Back button at the top */
+.sheetTop{
+  position:sticky; top:-20px; z-index:2; display:flex; align-items:center; gap:10px;
+  margin:-20px -18px 10px; padding:12px 18px 10px;
+  background:linear-gradient(180deg,#3a0a10,#33090e); border-bottom:1px solid var(--line);
+}
+.sheetTop h2{flex:1; margin:0 44px 0 0; text-align:center}
+.btn.back{flex:0 0 auto; min-height:44px; padding:6px 14px; font-size:16px; letter-spacing:.04em}
+
 /* theme picker */
 .pickRow{display:flex; align-items:center; justify-content:space-between; gap:10px; margin:6px 0 4px; text-align:left}
 .pickRow label{font-size:14px; color:var(--muted)}

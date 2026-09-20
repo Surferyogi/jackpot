@@ -1,6 +1,6 @@
 /* Jackpot — audio. All sound is synthesised live with WebAudio; there are no audio files.
    iOS requires the AudioContext to be created/resumed inside a user gesture, so
-   JP_AUDIO.unlock() is called from the first pointerdown anywhere on the page.
+   JP_AUDIO.unlock() is called from the first touchend / click / keydown anywhere on the page.
    Every public method is a no-op if audio is unavailable or the user turned it off. */
 (function (root) {
   'use strict';
@@ -15,6 +15,8 @@
     if (!AC) return false;
     try {
       ctx = new AC();
+      // iOS moves a context to "interrupted" (phone call, Siri, lock screen); start music again when it comes back.
+      try { ctx.onstatechange = function () { if (ctx.state === 'running' && unlocked && musicOn) startMusic(); }; } catch (e) {}
       master = ctx.createGain(); master.gain.value = 0.9; master.connect(ctx.destination);
       sfxBus = ctx.createGain(); sfxBus.gain.value = 1; sfxBus.connect(master);
       musicBus = ctx.createGain(); musicBus.gain.value = 0.16; musicBus.connect(master);
@@ -22,17 +24,50 @@
     } catch (e) { ctx = null; return false; }
   }
 
+  // iOS routes Web Audio through the "ambient" audio session, which the ring/silent switch mutes.
+  // A playing, looping, silent <audio> element moves the session to "playback", after which Web
+  // Audio is audible even with the switch on (the same trick as the widely used "unmute" helper).
+  // The element must be started inside a user gesture. The clip is a real 0.5 s silent MP3 (909 B).
+  const SILENT_MP3 = 'data:audio/mpeg;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjYwLjE2LjEwMAAAAAAAAAAAAAAA/+M4wAAAAAAAAAAAAEluZm8AAAAPAAAACQAAA2AAVVVVVVVVVVVVVVVqampqampqampqaoCAgICAgICAgICAlZWVlZWVlZWVlZWqqqqqqqqqqqqqqsDAwMDAwMDAwMDA1dXV1dXV1dXV1dXq6urq6urq6urq6v//////////////AAAAAExhdmM2MC4zMQAAAAAAAAAAAAAAACQCYAAAAAAAAANgUN8OnAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/+MYxAAAAANIAAAAAExBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVV/+MYxDsAAANIAAAAAFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVV/+MYxHYAAANIAAAAAFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVV/+MYxLEAAANIAAAAAFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVV/+MYxMQAAANIAAAAAFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVMQU1FMy4xMDBVVVVVVVVVVVVV/+MYxMQAAANIAAAAAFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV/+MYxMQAAANIAAAAAFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV/+MYxMQAAANIAAAAAFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV/+MYxMQAAANIAAAAAFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV';
+  let silentTag = null;
+  function keepAliveTag() {
+    if (!root.document) return;
+    try {
+      if (!silentTag) {
+        silentTag = root.document.createElement('audio');
+        silentTag.setAttribute('playsinline', ''); silentTag.setAttribute('webkit-playsinline', '');
+        silentTag.loop = true; silentTag.preload = 'auto'; silentTag.src = SILENT_MP3;
+      }
+      if (silentTag.paused) { const p = silentTag.play(); if (p && p.catch) p.catch(function () {}); }
+    } catch (e) {}
+  }
+
+  // Call from activation-triggering events only (touchend / click / keydown): on iOS a
+  // touchstart or a touch pointerdown does NOT count as user activation, so resume() would be ignored.
   function unlock() {
     if (!ensure()) return;
-    if (ctx.state === 'suspended') ctx.resume().catch(function () {});
-    if (!unlocked) {
-      unlocked = true;
-      // iOS: play a silent buffer inside the gesture to fully unlock.
-      try {
-        const b = ctx.createBuffer(1, 1, 22050); const s = ctx.createBufferSource(); s.buffer = b; s.connect(master); s.start(0);
-      } catch (e) {}
+    keepAliveTag();
+    const done = function () {
+      if (!ctx || ctx.state !== 'running') return;
+      if (!unlocked) {
+        unlocked = true;
+        try { const b = ctx.createBuffer(1, 1, 22050); const s = ctx.createBufferSource(); s.buffer = b; s.connect(master); s.start(0); } catch (e) {}
+      }
       if (musicOn) startMusic();
-    }
+    };
+    if (ctx.state !== 'running') {
+      try { const p = ctx.resume(); if (p && p.then) p.then(done, function () {}); } catch (e) {}
+    } else done();
+  }
+
+  // Diagnostics shown in Settings so a "no sound" report can be understood remotely.
+  function state() {
+    return {
+      context: ctx ? ctx.state : 'not created',
+      unlocked: unlocked,
+      session: silentTag ? (silentTag.paused ? 'paused' : 'playback') : 'none',
+      sfx: sfxOn, music: musicOn, musicRunning: !!musicTimer,
+    };
   }
 
   function now() { return ctx ? ctx.currentTime : 0; }
@@ -209,10 +244,10 @@
   if (root.document) {
     root.document.addEventListener('visibilitychange', function () {
       if (!ctx) return;
-      if (root.document.hidden) { stopMusic(); }
-      else if (musicOn && unlocked) { ctx.resume().then(startMusic).catch(function () {}); }
+      if (root.document.hidden) { stopMusic(); try { if (silentTag) silentTag.pause(); } catch (e) {} }
+      else if (unlocked) { keepAliveTag(); ctx.resume().then(function () { if (musicOn) startMusic(); }).catch(function () {}); }
     });
   }
 
-  root.JP_AUDIO = { unlock, sfx: SFX, setSfx, setMusic, setTempo, startMusic, stopMusic, isUnlocked: function () { return unlocked; } };
+  root.JP_AUDIO = { unlock, sfx: SFX, setSfx, setMusic, setTempo, startMusic, stopMusic, state, isUnlocked: function () { return unlocked; } };
 })(typeof window !== 'undefined' ? window : globalThis);

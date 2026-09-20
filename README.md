@@ -114,7 +114,7 @@ cd ~/Downloads
 unzip jackpot.zip && cd jackpot
 git init
 git add .
-git commit -m "Jackpot v2026:09:20-04:06 — initial PWA release"
+git commit -m "Jackpot v2026:09:20-04:45 — initial PWA release"
 git remote add origin https://github.com/Surferyogi/jackpot.git
 git branch -M main
 git push -u origin main
@@ -147,8 +147,13 @@ Open the URL in **Safari** → Share → **Add to Home Screen**. It then opens f
 works offline, and keeps its credits and records on that device. Progress is per device: the iPad
 and iPhone each have their own balance (same as Seven Wonders).
 
-Sound on iOS starts after the first tap anywhere (Apple requires a user gesture). Music and sound
-effects can be switched off under ⚙ → Settings.
+Sound on iOS starts after the first tap anywhere (Apple requires a user gesture; the app listens
+for touchend/click, since a touch *start* does not count as activation on iOS). The app also starts a
+silent looping `<audio>` clip inside that gesture, which moves the iOS audio session to "playback" so
+Web Audio is heard even with the **ring/silent switch** on — the standard workaround; without it iOS
+mutes all Web Audio while the switch is on. If there is still no sound: raise the volume buttons, and
+open ⚙ Settings, where an *Audio engine* status line shows whether the context is `running` and the
+session is `playback`. Music and sound effects can be switched off there too.
 
 ## 6. Releasing updates (standard loop)
 

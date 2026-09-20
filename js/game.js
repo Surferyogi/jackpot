@@ -614,6 +614,11 @@ window.addEventListener('error', function (e) {
     foot.textContent = 'Jackpot meter: ' + (E.JACKPOT.rate * 100).toFixed(1) + '% of every bet is added; it restarts at ' + fmt(E.JACKPOT.seed) + ' after it is won. Free play only — no real money.';
     list.appendChild(foot);
   }
+  function renderAudioStatus() {
+    const el = $('audioStatus'); if (!el || !AU.state) return;
+    const st = AU.state();
+    el.textContent = 'Audio engine: ' + st.context + (st.context === 'running' ? '' : ' (tap anywhere, then check the ring/silent switch and volume)') + ' \u00B7 session: ' + st.session + ' \u00B7 music ' + (st.musicRunning ? 'playing' : 'stopped');
+  }
   function renderRecords() {
     const dl = $('records'); if (!dl) return;
     const rows = [
@@ -702,7 +707,8 @@ window.addEventListener('error', function (e) {
   function closeOverlay(id) { hide(id); if (S.phase === 'overlay') S.phase = 'idle'; refreshControls(); }
 
   // ---------------------------------------------------------------- input wiring
-  document.addEventListener('pointerdown', function () { AU.unlock(); }, { passive: true });
+  // Audio unlock on activation-triggering events (iOS ignores touchstart / touch pointerdown for this).
+  ['touchend', 'click', 'keydown'].forEach(function (ev) { document.addEventListener(ev, function () { AU.unlock(); }, { passive: true }); });
 
   on('btnSpin', 'click', function () {
     AU.unlock();
@@ -737,10 +743,10 @@ window.addEventListener('error', function (e) {
   on('btnPays', 'click', function () { AU.sfx.button(); if (S.present) skipPresentation(); if (openOverlay('paysOverlay')) renderPaytable(); });
   on('btnPaysBack', 'click', function () { closeOverlay('paysOverlay'); });
 
-  on('btnMore', 'click', function () { AU.sfx.button(); if (S.present) skipPresentation(); if (openOverlay('moreOverlay')) { renderRecords(); renderThemePicker(); } });
+  on('btnMore', 'click', function () { AU.sfx.button(); if (S.present) skipPresentation(); if (openOverlay('moreOverlay')) { renderRecords(); renderThemePicker(); renderAudioStatus(); } });
   on('btnMoreBack', 'click', function () { closeOverlay('moreOverlay'); });
-  on('btnSfx', 'click', function () { P.sfx = !P.sfx; AU.setSfx(P.sfx); $('btnSfx').setAttribute('aria-pressed', P.sfx ? 'true' : 'false'); save(); AU.sfx.button(); });
-  on('btnMusic', 'click', function () { P.music = !P.music; AU.setMusic(P.music); $('btnMusic').setAttribute('aria-pressed', P.music ? 'true' : 'false'); save(); });
+  on('btnSfx', 'click', function () { P.sfx = !P.sfx; AU.setSfx(P.sfx); $('btnSfx').setAttribute('aria-pressed', P.sfx ? 'true' : 'false'); save(); AU.sfx.button(); later(renderAudioStatus, 300); });
+  on('btnMusic', 'click', function () { P.music = !P.music; AU.setMusic(P.music); $('btnMusic').setAttribute('aria-pressed', P.music ? 'true' : 'false'); save(); later(renderAudioStatus, 300); });
   on('btnReset', 'click', function () { hide('moreOverlay'); show('resetOverlay'); });
   on('btnResetNo', 'click', function () { hide('resetOverlay'); show('moreOverlay'); });
   on('btnResetYes', 'click', function () {
