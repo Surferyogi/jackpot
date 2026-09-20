@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#5a0a0f">
+<meta name="description" content="Jackpot — a free-play 5-reel fruit slot with festive celebrations. Virtual credits only; no real money.">
+<title>Jackpot</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Jackpot">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@700;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header>
+  <h1>JACKPOT</h1>
+  <div id="verTop"><span id="verTag"></span></div>
+</header>
+
+<main id="app">
+  <div id="festive" class="hidden" aria-live="polite">
+    <canvas id="festiveCanvas" width="600" height="68"></canvas>
+    <div id="festiveText"><span id="festiveZh"></span><span id="festiveEn"></span><span id="festiveSub"></span></div>
+  </div>
+
+  <div id="jackpotBar" aria-live="off">
+    <span class="jpLabel">JACKPOT</span>
+    <span id="jpValue">0</span>
+  </div>
+
+  <div id="stats">
+    <div class="stat"><span>CREDITS</span><b id="credits">0</b></div>
+    <div class="stat winStat"><span>WIN</span><b id="win">0</b></div>
+    <div class="stat"><span>BET</span><b id="betTxt">0</b></div>
+  </div>
+
+  <div id="reelWrap">
+    <canvas id="reels" width="600" height="360"></canvas>
+    <div id="fsBadge" class="hidden">FREE SPINS <b id="fsLeft">0</b> LEFT &middot; ALL WINS &times;2</div>
+    <div id="banner" class="hidden" aria-live="polite">
+      <div id="bannerTitle">BIG WIN</div>
+      <div id="bannerAmt">0</div>
+    </div>
+  </div>
+
+  <div id="msg">Good luck!</div>
+
+  <div id="controls">
+    <div class="betRow">
+      <button id="btnBetDown" class="ctl" aria-label="Lower bet">&minus;</button>
+      <div class="betBox"><span>BET</span><b id="betBig">0</b></div>
+      <button id="btnBetUp" class="ctl" aria-label="Raise bet">+</button>
+    </div>
+    <button id="btnSpin" class="spin">SPIN</button>
+    <button id="btnRefill" class="spin refill hidden">REFILL</button>
+    <div class="toolRow">
+      <button id="btnAuto" class="tool">AUTO</button>
+      <button id="btnTurbo" class="tool" aria-pressed="false">TURBO</button>
+      <button id="btnPays" class="tool">PAYS</button>
+      <button id="btnMore" class="tool" aria-label="Settings and records">&#9881;</button>
+    </div>
+  </div>
+</main>
+
+<!-- ---------- overlays ---------- -->
+<div class="overlay hidden" id="paysOverlay">
+  <div class="sheet">
+    <h2>PAYTABLE</h2>
+    <p class="tiny">Wins pay left to right on 20 lines. Amounts shown for your current bet of <b id="paysBet">0</b>.</p>
+    <div id="paysList"></div>
+    <div class="modeRow"><button class="btn" id="btnPaysBack">Back</button></div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="autoOverlay">
+  <div class="sheet">
+    <h2>AUTO SPIN</h2>
+    <p class="tiny">Spins by itself until the count runs out, the credits run out, or you tap STOP.</p>
+    <div class="modeRow">
+      <button class="btn" data-auto="10">10</button>
+      <button class="btn" data-auto="25">25</button>
+      <button class="btn" data-auto="50">50</button>
+      <button class="btn" data-auto="100">100</button>
+    </div>
+    <div class="modeRow"><button class="btn ghost" id="btnAutoBack">Cancel</button></div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="moreOverlay">
+  <div class="sheet">
+    <h2>SETTINGS</h2>
+    <div class="modeRow">
+      <button class="btn tog" id="btnSfx" aria-pressed="true">&#128266; Sound</button>
+      <button class="btn tog" id="btnMusic" aria-pressed="true">&#9835; Music</button>
+    </div>
+    <h3>FESTIVAL THEME</h3>
+    <div class="pickRow"><label for="themeSelect">Theme</label><select id="themeSelect"></select></div>
+    <p id="nextFest"></p>
+    <h3>RECORDS</h3>
+    <dl id="records"></dl>
+    <div class="modeRow">
+      <button class="btn ghost" id="btnReset">Reset game&hellip;</button>
+      <button class="btn" id="btnMoreBack">Back</button>
+    </div>
+    <p class="tiny" id="moreVer"></p>
+  </div>
+</div>
+
+<div class="overlay hidden" id="fsIntroOverlay">
+  <div class="sheet festive">
+    <div class="bigNum" id="fsIntroNum">10</div>
+    <h2>FREE SPINS</h2>
+    <p>All wins are <b>doubled</b> during free spins. More red packets add more spins.</p>
+    <div class="modeRow"><button class="btn big" id="btnFsStart">START</button></div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="fsEndOverlay">
+  <div class="sheet festive">
+    <h2>FREE SPINS COMPLETE</h2>
+    <p class="tiny">You won</p>
+    <div class="bigNum" id="fsEndTotal">0</div>
+    <div class="modeRow"><button class="btn big" id="btnFsCollect">COLLECT</button></div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="jackpotOverlay">
+  <div class="sheet festive jackpotSheet">
+    <h2 class="jpTitle">JACKPOT!</h2>
+    <p class="tiny" id="jpSub">Five Lucky 7s &mdash; the whole meter is yours</p>
+    <div class="bigNum" id="jpWonAmt">0</div>
+    <div class="modeRow"><button class="btn big" id="btnJpCollect">COLLECT</button></div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="giftOverlay">
+  <div class="sheet festive">
+    <h2>HAPPY BIRTHDAY, DAD!</h2>
+    <p>生日快乐 &mdash; a birthday gift from the house</p>
+    <div class="bigNum" id="giftAmt">+8,888</div>
+    <p class="tiny">credits added to your balance</p>
+    <div class="modeRow"><button class="btn big" id="btnGiftCollect">THANK YOU!</button></div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="resetOverlay">
+  <div class="sheet">
+    <h2>RESET GAME?</h2>
+    <p>This puts the credits back to the starting amount and clears all records. It cannot be undone.</p>
+    <div class="modeRow">
+      <button class="btn ghost" id="btnResetNo">Keep playing</button>
+      <button class="btn danger" id="btnResetYes">Reset everything</button>
+    </div>
+  </div>
+</div>
+
+<canvas id="fx" aria-hidden="true"></canvas>
+
+<footer>
+  Free play with virtual credits only &mdash; no real money. All art and sound are generated in code; no commercial assets are used.
+</footer>
+
+<script src="js/config.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/art.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/fx.js"></script>
+<script src="js/lunar.js"></script>
+<script src="js/themes.js"></script>
+<script src="js/game.js"></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('sw.js').catch(() => {});
+    });
+  }
+</script>
+</body>
+</html>

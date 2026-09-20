@@ -1,0 +1,22 @@
+const { chromium } = require('playwright'); const http=require('http'), fs=require('fs'), path=require('path');
+const ROOT=path.resolve(__dirname,'..'); const MIME={'.html':'text/html','.js':'text/javascript','.css':'text/css','.png':'image/png','.webmanifest':'application/manifest+json'};
+const srv=http.createServer((q,r)=>{let p=q.url.split('?')[0]; if(p==='/')p='/index.html'; const f=path.join(ROOT,p); if(!fs.existsSync(f)||fs.statSync(f).isDirectory()){r.writeHead(404);return r.end();} r.writeHead(200,{'Content-Type':MIME[path.extname(f)]||'text/plain'}); fs.createReadStream(f).pipe(r);});
+srv.listen(0, async()=>{
+  const base='http://127.0.0.1:'+srv.address().port+'/'; const b=await chromium.launch(); const errs=[];
+  const ctx=await b.newContext({viewport:{width:390,height:844},deviceScaleFactor:2,hasTouch:true,isMobile:true}); const page=await ctx.newPage();
+  page.on('pageerror',e=>errs.push(e.message)); page.on('console',m=>{if(m.type()==='error')errs.push(m.text())});
+  await page.goto(base); await page.waitForTimeout(500);
+  const found=await page.evaluate(()=>{const E=window.JP_ENGINE; const n=48; for(let a=0;a<n;a++)for(let b2=0;b2<n;b2++)for(let c=0;c<n;c++)for(let d=0;d<n;d+=3){const s=[a,b2,c,d,0];const r=E.evaluate(E.gridFromStops(s),100,{jackpot:5000}); if(r.total>=2500&&!r.scatter.freeSpins&&!r.jackpot.hit)return s;} return null;});
+  console.log('epic stops',found);
+  await page.evaluate(s=>{window.JP_ENGINE.spinStops=()=>s.slice()},found);
+  await page.click('#btnSpin'); await page.waitForTimeout(3600); await page.screenshot({path:'tests/out/20-epic-a.png'});
+  await page.waitForTimeout(1500); await page.screenshot({path:'tests/out/21-epic-b.png'});
+  await page.waitForTimeout(4000);
+  const jp=await page.evaluate(()=>window.JP_ENGINE.STRIPS.map(s=>{const i=s.indexOf('SEVEN');return (i-1+s.length)%s.length}));
+  await page.evaluate(s=>{window.JP_ENGINE.spinStops=()=>s.slice()},jp);
+  await page.click('#btnSpin'); await page.waitForTimeout(3300); await page.screenshot({path:'tests/out/22-jackpot-a.png'});
+  await page.waitForTimeout(2500); await page.screenshot({path:'tests/out/23-jackpot-b.png'});
+  await page.waitForTimeout(3000); await page.click('#btnJpCollect'); await page.waitForTimeout(300);
+  await page.click('#btnPays'); await page.waitForTimeout(300); await page.screenshot({path:'tests/out/24-pays.png'});
+  console.log('errors',errs); await b.close(); srv.close();
+});

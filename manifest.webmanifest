@@ -1,0 +1,16 @@
+{
+  "name": "Jackpot",
+  "short_name": "Jackpot",
+  "description": "A free-play 5-reel fruit slot with festive celebrations. Virtual credits only; no real money.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#4a0509",
+  "theme_color": "#5a0a0f",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

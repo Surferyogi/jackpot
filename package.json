@@ -1,0 +1,11 @@
+{
+  "name": "jackpot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Free-play 5-reel slot PWA with festival themes. Static site, no build step; this file only wires up the tests.",
+  "scripts": {
+    "test": "node tests/engine.test.js && node tests/lunar.test.js",
+    "simulate": "node tests/simulate.js 2000000 100",
+    "test:browser": "node tests/browser.js && node tests/themes.browser.js"
+  }
+}
