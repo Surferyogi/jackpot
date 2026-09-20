@@ -12,22 +12,42 @@
 
   // Line pays in multiples of the LINE bet (total bet / 20), for N-of-a-kind left to right.
   const PAY = {
-    SEVEN:  { 3: 30, 4: 120, 5: 600 },
-    BAR:    { 3: 20, 4: 75,  5: 300 },
-    BELL:   { 3: 15, 4: 40,  5: 150 },
-    MELON:  { 3: 10, 4: 30,  5: 80 },
-    PLUM:   { 3: 8,  4: 20,  5: 60 },
-    ORANGE: { 3: 5,  4: 15,  5: 40 },
-    LEMON:  { 3: 4,  4: 10,  5: 30 },
-    CHERRY: { 2: 2,  3: 4,   4: 10,  5: 30 },
+    SEVEN:  { 3: 25, 4: 90,  5: 450 },
+    BAR:    { 3: 15, 4: 60,  5: 230 },
+    BELL:   { 3: 12, 4: 30,  5: 115 },
+    MELON:  { 3: 8,  4: 23,  5: 60 },
+    PLUM:   { 3: 6,  4: 15,  5: 45 },
+    ORANGE: { 3: 4,  4: 12,  5: 30 },
+    LEMON:  { 3: 3,  4: 8,   5: 23 },
+    CHERRY: { 2: 2,  3: 3,   4: 8,   5: 23 },
   };
 
   // Scatter (red packet): pays in multiples of the TOTAL bet and awards free spins.
   const SCATTER_PAY = { 3: 2, 4: 5, 5: 20 };
   const FREE_SPINS  = { 3: 10, 4: 15, 5: 20 };
 
-  const WILD_MULT = 2;   // any line win that uses a wild (gold ingot) is doubled
-  const FS_MULT   = 2;   // all wins during free spins are doubled (stacks with wild → ×4)
+  const WILD_MULT = 2;   // any line win that uses a Gold (wild ingot) is doubled
+  const FS_MULT   = 2;   // free spins start at ×2 …
+  const FS_LADDER = [2, 3, 4, 5]; // … and every winning free spin in a row climbs the ladder; a blank spin resets to ×2
+
+  // ---- Bonus features -------------------------------------------------------------
+  // Gold Rush (base game, random): before the reels stop, 1 or 2 of reels 2–4 turn fully Gold.
+  const GOLD_RUSH = { prob: 1 / 75, twoReelProb: 0.25, reels: [1, 2, 3] };
+  // Fortune Pick (symbol trigger): a Gold showing on each of reels 2, 3 and 4 at the same time.
+  // 12 red packets; the player opens PICKS of them; each holds a prize in multiples of the total bet.
+  const PICK = { picks: 3, prizes: [1, 1, 1, 1, 2, 2, 2, 3, 3, 5, 5, 8] };
+  // Lucky Wheel (mystery trigger): after a losing base-game spin, with probability WHEEL.prob.
+  // Twelve equal segments, chosen uniformly. 'x' = multiple of total bet, 'fs' = free spins, 'jackpot' = the meter.
+  const WHEEL = {
+    prob: 1 / 90,
+    segments: [
+      { t: 'x', v: 2 }, { t: 'x', v: 5 }, { t: 'fs', v: 5 }, { t: 'x', v: 3 }, { t: 'x', v: 8 }, { t: 'x', v: 2 },
+      { t: 'jackpot' }, { t: 'x', v: 3 }, { t: 'fs', v: 10 }, { t: 'x', v: 5 }, { t: 'x', v: 15 }, { t: 'x', v: 2 },
+    ],
+  };
+  // Double Up (optional, player's choice): after a base-game win of 1×–25× the bet, guess Red or Black.
+  // Fair 50/50; win doubles the amount, lose forfeits it; up to DOUBLE.maxRounds in a row.
+  const DOUBLE = { minX: 1, maxX: 25, maxRounds: 3 };
 
   const LINE_COUNT = 20;
   // 20 fixed paylines: row index (0 top, 1 middle, 2 bottom) per reel.
@@ -97,7 +117,8 @@
 
   // ---- Evaluation --------------------------------------------------------------
   /* evaluate(grid, totalBet, opts)
-     opts.freeSpins  – true while inside a free-spin round (applies FS_MULT)
+     opts.freeSpins  – true while inside a free-spin round (applies FS_MULT unless opts.multiplier is given)
+     opts.multiplier – explicit win multiplier (free-spin ladder)
      opts.jackpot    – current meter value; awarded in full when hit
      Returns { lineWins:[{line, symbol, count, pay, positions:[[reel,row]...], wild}],
                scatter:{count, positions, pay, freeSpins},
@@ -106,7 +127,7 @@
   function evaluate(grid, totalBet, opts) {
     opts = opts || {};
     const lineBet = totalBet / LINE_COUNT;
-    const mult = opts.freeSpins ? FS_MULT : 1;
+    const mult = opts.multiplier != null ? opts.multiplier : (opts.freeSpins ? FS_MULT : 1);
     const lineWins = [];
     let jackpotHit = false, jackpotLine = -1;
 
@@ -149,15 +170,49 @@
       freeSpins: FREE_SPINS[scCount] || 0,
     };
 
+    // Fortune Pick trigger: a Gold visible on each of reels 2, 3 and 4 (not during Gold Rush reels).
+    const goldPos = [];
+    let goldReels = 0;
+    for (let r = 1; r <= 3; r++) { let has = false; for (let k = 0; k < ROWS; k++) if (grid[r][k] === 'WILD') { goldPos.push([r, k]); has = true; } if (has) goldReels++; }
+    const pick = { hit: !opts.noPick && goldReels === 3, positions: goldPos };
+
     const lineTotal = lineWins.reduce((a, w) => a + w.pay, 0);
     const jackpotAmount = jackpotHit ? Math.round(opts.jackpot || 0) : 0;
     const total = lineTotal + scatter.pay + jackpotAmount;
     return {
-      lineWins, scatter,
+      lineWins, scatter, pick,
       jackpot: { hit: jackpotHit, amount: jackpotAmount, line: jackpotLine },
       lineTotal, total, multiplier: mult,
     };
   }
+
+  // ---- Bonus helpers (pure; rng defaults to crypto) -------------------------------------
+  function rollGoldRush(rng) {
+    rng = rng || defaultRng;
+    if (rng() >= GOLD_RUSH.prob) return null;
+    const pool = GOLD_RUSH.reels.slice();
+    const pickOne = function () { return pool.splice(Math.floor(rng() * pool.length), 1)[0]; };
+    const reels = [pickOne()];
+    if (rng() < GOLD_RUSH.twoReelProb) reels.push(pickOne());
+    return reels.sort();
+  }
+  function applyGoldRush(grid, reels) {
+    const g = grid.map(function (col) { return col.slice(); });
+    (reels || []).forEach(function (r) { for (let k = 0; k < ROWS; k++) g[r][k] = 'WILD'; });
+    return g;
+  }
+  function rollWheel(rng) { rng = rng || defaultRng; return rng() < WHEEL.prob; }
+  function spinWheel(rng) { rng = rng || defaultRng; return Math.floor(rng() * WHEEL.segments.length); }
+  // Shuffled packet layout for Fortune Pick (multiples of bet, in packet order).
+  function pickLayout(rng) {
+    rng = rng || defaultRng;
+    const a = PICK.prizes.slice();
+    for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); const t = a[i]; a[i] = a[j]; a[j] = t; }
+    return a;
+  }
+  function nextLadder(mult, won) { if (!won) return FS_LADDER[0]; const i = FS_LADDER.indexOf(mult); return i < 0 ? FS_LADDER[0] : FS_LADDER[Math.min(FS_LADDER.length - 1, i + 1)]; }
+  function canDouble(total, totalBet) { return total >= DOUBLE.minX * totalBet && total <= DOUBLE.maxX * totalBet; }
+  function doubleDraw(rng) { rng = rng || defaultRng; return rng() < 0.5 ? 'red' : 'black'; }
 
   // Win tier for celebrations, by total win ÷ total bet.
   function winTier(total, totalBet, jackpotHit) {
@@ -173,9 +228,11 @@
   function jackpotContribution(totalBet) { return totalBet * JACKPOT.rate; }
 
   const ENGINE = {
-    REELS, ROWS, SYMBOLS, PAY, SCATTER_PAY, FREE_SPINS, WILD_MULT, FS_MULT,
+    REELS, ROWS, SYMBOLS, PAY, SCATTER_PAY, FREE_SPINS, WILD_MULT, FS_MULT, FS_LADDER,
+    GOLD_RUSH, PICK, WHEEL, DOUBLE,
     LINE_COUNT, LINES, BETS, JACKPOT, START_CREDITS, REFILL_CREDITS, STRIPS,
     defaultRng, spinStops, gridFromStops, symbolAt, evaluate, winTier, jackpotContribution,
+    rollGoldRush, applyGoldRush, rollWheel, spinWheel, pickLayout, nextLadder, canDouble, doubleDraw,
   };
 
   root.JP_ENGINE = ENGINE;

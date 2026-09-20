@@ -40,13 +40,14 @@ srv.listen(0, async () => {
     }
     if (name === 'zhongqiu') {
       await page.click('#btnMore'); await page.waitForTimeout(400);
-      info.picker = await page.evaluate(() => ({ options: Array.from(document.querySelectorAll('#themeSelect option')).map((o) => o.textContent), next: document.getElementById('nextFest').textContent }));
+      info.pickerHidden = await page.evaluate(() => !document.getElementById('themeSelect'));
       await page.screenshot({ path: path.join(__dirname, 'out', 'theme-settings.png') });
-      await page.selectOption('#themeSelect', 'xmas'); await page.waitForTimeout(300);
-      info.previewTheme = await page.evaluate(() => document.body.getAttribute('data-theme'));
-      await page.selectOption('#themeSelect', 'auto'); await page.waitForTimeout(300);
-      info.backToAuto = await page.evaluate(() => document.body.getAttribute('data-theme'));
       await page.click('#btnMoreBack');
+      // ?theme=<id> URL override for testing (never persisted)
+      await page.goto(base + '?theme=xmas'); await page.waitForTimeout(600);
+      info.previewTheme = await page.evaluate(() => document.body.getAttribute('data-theme'));
+      await page.goto(base); await page.waitForTimeout(600);
+      info.backToAuto = await page.evaluate(() => document.body.getAttribute('data-theme'));
     }
     await page.waitForTimeout(700);
     await page.screenshot({ path: path.join(__dirname, 'out', 'theme-' + name + '.png') });

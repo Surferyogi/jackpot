@@ -41,7 +41,7 @@
 
   <div id="reelWrap">
     <canvas id="reels" width="600" height="360"></canvas>
-    <div id="fsBadge" class="hidden">FREE SPINS <b id="fsLeft">0</b> LEFT &middot; ALL WINS &times;2</div>
+    <div id="fsBadge" class="hidden">FREE SPINS <b id="fsLeft">0</b> LEFT &middot; WINS <b id="fsMult">&times;2</b></div>
     <div id="banner" class="hidden" aria-live="polite">
       <div id="bannerTitle">BIG WIN</div>
       <div id="bannerAmt">0</div>
@@ -99,9 +99,9 @@
     </div>
     <p class="tiny" id="audioStatus"></p>
     <p class="tiny">Sound starts after your first tap. No sound on iPhone? Turn the ring/silent switch off silent, raise the volume buttons, and make sure Sound above is not crossed out.</p>
-    <h3>FESTIVAL THEME</h3>
-    <div class="pickRow"><label for="themeSelect">Theme</label><select id="themeSelect"></select></div>
-    <p id="nextFest"></p>
+    <h3>BONUS</h3>
+    <div class="modeRow"><button class="btn tog" id="btnGamble" aria-pressed="true">&#127183; Double Up offers</button></div>
+    <p class="tiny">When on, a win of 1&times;&ndash;25&times; your bet offers a Red/Black guess to double it. Always optional.</p>
     <h3>RECORDS</h3>
     <dl id="records"></dl>
     <div class="modeRow">
@@ -135,6 +135,43 @@
     <p class="tiny" id="jpSub">Five Lucky 7s &mdash; the whole meter is yours</p>
     <div class="bigNum" id="jpWonAmt">0</div>
     <div class="modeRow"><button class="btn big" id="btnJpCollect">COLLECT</button></div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="pickOverlay">
+  <div class="sheet festive">
+    <h2>FORTUNE PICK</h2>
+    <p class="tiny">红包大抽奖 &middot; <span id="pickLeft">Open 3 red packets</span></p>
+    <div id="pickGrid"></div>
+    <p class="tiny">Total so far</p>
+    <div class="bigNum" id="pickTotal">0</div>
+    <div class="modeRow hidden" id="pickCollectRow"><button class="btn big" id="btnPickCollect">COLLECT</button></div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="wheelOverlay">
+  <div class="sheet festive">
+    <h2>LUCKY WHEEL</h2>
+    <p class="tiny">转运轮 &middot; a surprise spin on the house</p>
+    <div id="wheelWrap"><canvas id="wheelCanvas" width="300" height="300"></canvas></div>
+    <p id="wheelResult"></p>
+    <div class="modeRow"><button class="btn big" id="btnWheelSpin">SPIN THE WHEEL</button></div>
+    <div class="modeRow hidden" id="wheelCollectRow"><button class="btn big" id="btnWheelCollect">COLLECT</button></div>
+  </div>
+</div>
+
+<div class="overlay hidden" id="gambleOverlay">
+  <div class="sheet festive">
+    <h2>DOUBLE UP?</h2>
+    <div class="bigNum" id="gambleAmt">0</div>
+    <div id="gambleCard" class="card">?</div>
+    <p id="gambleMsg"></p>
+    <div class="modeRow">
+      <button class="btn red" id="btnGambleRed">&#9829; RED</button>
+      <button class="btn black" id="btnGambleBlack">&#9824; BLACK</button>
+    </div>
+    <div class="modeRow"><button class="btn big" id="btnGambleCollect">COLLECT</button></div>
+    <p class="tiny" id="gambleTimer"></p>
   </div>
 </div>
 

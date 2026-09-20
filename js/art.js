@@ -200,7 +200,7 @@
   };
 
   D.WILD = function (ctx, cx, cy, s) {
-    // Gold ingot (yuanbao): boat-shaped base with a domed centre.
+    // Gold: an ingot (yuanbao) — boat-shaped base with a domed centre. Acts as the wild.
     ctx.save();
     ctx.translate(cx, cy + s * 0.06);
     const w = s * 0.8, h = s * 0.42;
@@ -224,7 +224,7 @@
     ctx.fillStyle = '#5a3a00';
     ctx.font = '900 ' + Math.round(s * 0.15) + 'px Arial, Helvetica, sans-serif';
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('WILD', 0, h * 0.27);
+    ctx.fillText('GOLD', 0, h * 0.27);
     ctx.restore();
   };
 
@@ -263,7 +263,7 @@
   // Friendly names for the paytable and win captions.
   const NAMES = {
     SEVEN: 'Lucky 7', BAR: 'Bar', BELL: 'Bell', MELON: 'Melon', PLUM: 'Plum',
-    ORANGE: 'Orange', LEMON: 'Lemon', CHERRY: 'Cherry', WILD: 'Gold Ingot (Wild)', SCATTER: 'Red Packet (Free Spins)',
+    ORANGE: 'Orange', LEMON: 'Lemon', CHERRY: 'Cherry', WILD: 'Gold (Wild)', SCATTER: 'Red Packet (Free Spins)',
   };
 
   root.JP_ART = { drawSymbol, NAMES, roundRect: rr };

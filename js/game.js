@@ -33,7 +33,9 @@ window.addEventListener('error', function (e) {
       betIdx: 2,
       sfx: true, music: true, turbo: false,
       best: { win: 0, balance: E.START_CREDITS },
-      stats: { spins: 0, wagered: 0, won: 0, refills: 0, jackpots: 0, fsRounds: 0, bigWins: 0 },
+      stats: { spins: 0, wagered: 0, won: 0, refills: 0, jackpots: 0, fsRounds: 0, bigWins: 0, goldRush: 0, picks: 0, wheels: 0, gambleWon: 0, gambleLost: 0 },
+      gamble: true,           // offer Double Up after qualifying base-game wins
+      bonus: null,            // an in-progress Fortune Pick / Lucky Wheel, so it survives a reload
       themeOverride: 'auto',  // 'auto' = festival theme by today's date; otherwise a theme id chosen in Settings
       gifts: { birthdayYear: 0 }, // Gregorian year in which the birthday gift was last given
       fs: null,        // { left, total, bet, spins } while a free-spin round is in progress
@@ -57,8 +59,10 @@ window.addEventListener('error', function (e) {
       if (p.stats) for (const k in d.stats) d.stats[k] = num(p.stats[k], 0);
       if (typeof p.themeOverride === 'string' && (p.themeOverride === 'auto' || (TH && TH.THEMES[p.themeOverride]))) d.themeOverride = p.themeOverride;
       if (p.gifts) d.gifts.birthdayYear = Math.round(num(p.gifts.birthdayYear, 0));
-      if (p.fs && num(p.fs.left, 0) > 0) d.fs = { left: Math.round(p.fs.left), total: num(p.fs.total, 0), bet: num(p.fs.bet, E.BETS[d.betIdx]), spins: num(p.fs.spins, 0) };
-      if (p.pending && Array.isArray(p.pending.stops) && p.pending.stops.length === E.REELS) d.pending = { stops: p.pending.stops.map(Number), bet: num(p.pending.bet, E.BETS[d.betIdx]), free: !!p.pending.free };
+      d.gamble = p.gamble !== false;
+      if (p.bonus && (p.bonus.type === 'pick' || p.bonus.type === 'wheel')) d.bonus = p.bonus;
+      if (p.fs && num(p.fs.left, 0) > 0) d.fs = { left: Math.round(p.fs.left), total: num(p.fs.total, 0), bet: num(p.fs.bet, E.BETS[d.betIdx]), spins: num(p.fs.spins, 0), mult: E.FS_LADDER.indexOf(p.fs.mult) >= 0 ? p.fs.mult : E.FS_LADDER[0] };
+      if (p.pending && Array.isArray(p.pending.stops) && p.pending.stops.length === E.REELS) d.pending = { stops: p.pending.stops.map(Number), bet: num(p.pending.bet, E.BETS[d.betIdx]), free: !!p.pending.free, gold: Array.isArray(p.pending.gold) ? p.pending.gold.map(Number) : null };
       d.created = num(p.created, d.created);
     } catch (e) { /* corrupt or blocked storage → fresh profile */ }
     return d;
@@ -79,6 +83,9 @@ window.addEventListener('error', function (e) {
     shownWin: 0,
     anticipating: false,
     theme: null, themeKey: '',   // active festival theme (see js/themes.js)
+    goldRush: null, reelGold: null, goldWipe: null, // Gold Rush: reels chosen for this spin / drawn as Gold / wipe animation
+    after: null,                 // what still has to happen after the current bonus (free spins to start, etc.)
+    gamble: null,                // Double Up state
     lastFrame: 0, raf: 0,
   };
   function later(fn, ms) { return setTimeout(fn, ms); }
@@ -209,10 +216,14 @@ window.addEventListener('error', function (e) {
       // landing squash & stretch for ~320 ms after the reel stops
       let bounce = 0;
       if (R.phase === 'stopped' && R.stoppedAt) { const u = (now - R.stoppedAt) / 320; if (u < 1) bounce = Math.sin(u * Math.PI) * (1 - u); }
+      const goldReel = S.reelGold && S.reelGold.indexOf(r) >= 0;
+      const wipe = S.goldWipe && S.goldWipe.reels.indexOf(r) >= 0 ? clamp((now - S.goldWipe.t0) / 750, 0, 1) : -1;
+      const wipeFront = padY + wipe * (H - padY * 2);
       for (let k = -1; k <= E.ROWS; k++) {
-        const id = E.symbolAt(r, base + k);
+        let id = E.symbolAt(r, base + k);
         const y = padY + (k - frac) * cell + cell / 2;
         const x = padX + r * cell + cell / 2;
+        if (k >= 0 && k < E.ROWS && (goldReel || (wipe >= 0 && y < wipeFront))) id = 'WILD';
         if (R.phase === 'spin') {
           // motion blur: a stretched ghost plus the symbol itself
           drawSym(id, x, y, size, { sy: 1.45, alpha: 0.35 });
@@ -241,6 +252,15 @@ window.addEventListener('error', function (e) {
       if (R.glow > 0) { // anticipation glow
         const a = 0.25 + 0.2 * Math.sin(now / 90);
         ctx.fillStyle = 'rgba(245,197,24,' + (a * R.glow) + ')'; ctx.fillRect(padX + r * cell, padY, cell, H - padY * 2);
+      }
+      if (wipe >= 0 && wipe < 1) { // Gold Rush wipe front: bright band + sparks
+        const g4 = ctx.createLinearGradient(0, wipeFront - cell * 0.5, 0, wipeFront + cell * 0.2);
+        g4.addColorStop(0, 'rgba(255,240,160,0)'); g4.addColorStop(0.7, 'rgba(255,230,120,0.85)'); g4.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = g4; ctx.fillRect(padX + r * cell, wipeFront - cell * 0.5, cell, cell * 0.7);
+        if (Math.random() < 0.7) addSpark(padX + r * cell + Math.random() * cell, wipeFront, (Math.random() - 0.5) * 120, -40 - Math.random() * 100, '#ffe680', 0.5);
+      } else if (goldReel && !hl) { // settled gold reel shimmer
+        const a = 0.10 + 0.08 * Math.sin(now / 300 + r);
+        ctx.fillStyle = 'rgba(255,215,90,' + a + ')'; ctx.fillRect(padX + r * cell, padY, cell, H - padY * 2);
       }
     }
     // light sweep across the window every few seconds while idle (no win showing)
@@ -276,7 +296,7 @@ window.addEventListener('error', function (e) {
     ctx.fillStyle = 'rgba(40,10,0,0.42)'; ctx.fillRect(padX, padY, W - padX * 2, H - padY * 2);
     const pulse = 0.5 + 0.5 * Math.sin(now / 160);
     const isSc = entry.kind === 'scatter';
-    const col = isSc ? '#e0262b' : '#f5c518';
+    const col = isSc ? '#e0262b' : (entry.kind === 'gold' ? '#ffd34d' : '#f5c518');
     if (entry.kind === 'line') {
       const line = E.LINES[entry.line];
       const pts = [];
@@ -399,7 +419,9 @@ window.addEventListener('error', function (e) {
     }
     P.stats.spins += 1;
     S.stops = E.spinStops();
-    P.pending = { stops: S.stops.slice(), bet: b, free: free };
+    S.goldRush = free ? null : E.rollGoldRush();
+    S.reelGold = null; S.goldWipe = null;
+    P.pending = { stops: S.stops.slice(), bet: b, free: free, gold: S.goldRush };
     save();
 
     S.phase = 'spinning';
@@ -437,9 +459,21 @@ window.addEventListener('error', function (e) {
   }
 
   function onAllStopped() {
-    S.grid = E.gridFromStops(S.stops);
     const b = P.pending ? P.pending.bet : currentBet();
-    const res = E.evaluate(S.grid, b, { freeSpins: !!S.fs, jackpot: P.jackpot });
+    if (S.goldRush && !S.reelGold) {
+      // Gold Rush: sweep the chosen reel(s) to Gold, then settle the spin.
+      S.goldWipe = { reels: S.goldRush, t0: performance.now() };
+      showBanner('GOLD RUSH!', 'gold'); setText('bannerAmt', S.goldRush.length === 2 ? 'TWO GOLDEN REELS' : 'GOLDEN REEL');
+      AU.sfx.gong(); later(function () { AU.sfx.fsIntro(); }, 250);
+      const rect = cv.getBoundingClientRect();
+      S.goldRush.forEach(function (r) { FX.coinFountain(14, rect.left + padX + (r + 0.5) * cell, rect.top + rect.height, 0.5); });
+      P.stats.goldRush += 1; save();
+      later(function () { S.reelGold = S.goldRush; S.goldWipe = null; hideBanner(); onAllStopped(); }, 1400);
+      requestFrame();
+      return;
+    }
+    S.grid = E.applyGoldRush(E.gridFromStops(S.stops), S.reelGold);
+    const res = E.evaluate(S.grid, b, { freeSpins: !!S.fs, multiplier: S.fs ? S.fs.mult : undefined, jackpot: P.jackpot, noPick: !!S.reelGold });
     commitResult(res, b);
     present(res, b);
   }
@@ -454,6 +488,8 @@ window.addEventListener('error', function (e) {
     if (S.fs) {
       S.fs.spins += 1; S.fs.left -= 1; S.fs.total += res.total;
       if (res.scatter.freeSpins) S.fs.left += res.scatter.freeSpins;
+      S.fs.usedMult = S.fs.mult;
+      S.fs.mult = E.nextLadder(S.fs.mult, res.lineTotal + res.scatter.pay > 0);
       P.fs = S.fs;
     }
     P.pending = null;
@@ -468,8 +504,9 @@ window.addEventListener('error', function (e) {
     const entries = [];
     res.lineWins.forEach(function (w) { entries.push({ kind: 'line', line: w.line, positions: w.positions, caption: lineCaption(w) }); });
     if (res.scatter.count >= 3) entries.push({ kind: 'scatter', positions: res.scatter.positions, caption: res.scatter.count + ' Red Packets · ' + res.scatter.freeSpins + ' Free Spins' + (res.scatter.pay ? ' + ' + fmt(res.scatter.pay) : '') });
+    if (res.pick.hit) entries.unshift({ kind: 'gold', positions: res.pick.positions, caption: 'Three Golds · FORTUNE PICK!' });
 
-    if (tier === 'none') {
+    if (tier === 'none' && !res.pick.hit) {
       setMsg(S.fs ? ('Free spin ' + S.fs.spins + ' of ' + (S.fs.spins + S.fs.left)) : pick(['So close!', 'Try again!', 'Next one!', 'Almost…']));
       S.phase = 'idle';
       updateHud();
@@ -478,7 +515,8 @@ window.addEventListener('error', function (e) {
     }
 
     S.phase = 'present';
-    const dur = t.tier[tier];
+    const dur = tier === 'none' ? 1500 : t.tier[tier];
+    if (res.pick.hit) AU.sfx.scatterLand(3);
     S.present = { res, tier, entries, idx: 0, entry: entries[0], entryT: performance.now(), t0: performance.now(), dur, countTotal: res.total, countDur: Math.min(dur * 0.75, 6500), lastTick: 0, done: false, b };
     if (entries[0]) entries[0].t0 = performance.now();
     S.shownWin = 0;
@@ -489,7 +527,7 @@ window.addEventListener('error', function (e) {
   }
 
   function lineCaption(w) {
-    return 'Line ' + (w.line + 1) + ' · ' + w.count + ' × ' + ART.NAMES[w.symbol].split(' (')[0] + (w.wild ? ' + Wild ×2' : '') + ' · ' + fmt(w.pay);
+    return 'Line ' + (w.line + 1) + ' · ' + w.count + ' × ' + ART.NAMES[w.symbol].split(' (')[0] + (w.wild ? ' + Gold ×2' : '') + ' · ' + fmt(w.pay);
   }
 
   function stepPresentation(now) {
@@ -603,29 +641,59 @@ window.addEventListener('error', function (e) {
   function afterPresentation(res) {
     const t = T();
     if (res.jackpot.hit) return; // wait for COLLECT on the jackpot overlay
+    const b = res.bet || (S.fs ? S.fs.bet : E.BETS[P.betIdx]);
     if (S.fs) {
       if (res.scatter.freeSpins) { setMsg('+' + res.scatter.freeSpins + ' more free spins!'); setText('fsLeft', S.fs.left); }
-      if (S.fs.left > 0) { later(startSpin, t.gap + (res.total > 0 ? 300 : 0)); }
-      else { later(endFreeSpins, 400); }
-      refreshControls();
+      else if (res.total > 0 && S.fs.mult > S.fs.usedMult) setMsg('Multiplier rises to \u00D7' + S.fs.mult + '!');
+      updateFsBadge();
+      if (res.pick && res.pick.hit) { later(function () { beginPick(S.fs.bet); }, 500); refreshControls(); return; }
+      continueFreeSpins(res.total > 0);
       return;
     }
-    if (res.scatter.freeSpins) { later(function () { beginFreeSpins(res.scatter.freeSpins, P.pending ? P.pending.bet : E.BETS[P.betIdx]); }, 500); return; }
+    // base game: Fortune Pick first, then free spins, else maybe the Lucky Wheel or a Double Up offer
+    S.after = { fs: res.scatter.freeSpins || 0, bet: b };
+    if (res.pick && res.pick.hit) { later(function () { beginPick(b); }, 500); return; }
+    if (S.after.fs) { const n = S.after.fs; S.after = null; later(function () { beginFreeSpins(n, b); }, 500); return; }
+    S.after = null;
+    if (res.total === 0 && E.rollWheel()) { later(function () { beginWheel(b); }, 450); return; }
+    if (res.total > 0 && P.gamble && S.auto === 0 && E.canDouble(res.total, b)) { offerDouble(res.total, b); return; }
+    continueBaseGame();
+  }
+  function continueFreeSpins(hadWin) {
+    const t = T();
+    if (S.fs.left > 0) { later(startSpin, t.gap + (hadWin ? 300 : 0)); }
+    else { later(endFreeSpins, 400); }
+    refreshControls();
+  }
+  function continueBaseGame() {
+    const t = T();
     if (S.auto > 0) {
-      if (!canAfford()) { S.auto = 0; setMsg('Auto stopped — not enough credits'); }
+      if (!canAfford()) { S.auto = 0; setMsg('Auto stopped \u2014 not enough credits'); }
       else { later(function () { if (S.auto > 0 && S.phase === 'idle') { S.auto -= 1; startSpin(); } }, t.gap); }
     }
     refreshControls();
     if (S.auto === 0) maybeBirthdayGift();
   }
+  // Called when a bonus (pick / wheel / gamble) closes: carry on with whatever was queued.
+  function finishBonus() {
+    S.phase = 'idle'; updateHud(); refreshControls();
+    if (S.fs) { continueFreeSpins(true); return; }
+    if (S.after && S.after.fs) { const n = S.after.fs, b = S.after.bet; S.after = null; later(function () { beginFreeSpins(n, b); }, 400); return; }
+    S.after = null;
+    continueBaseGame();
+  }
+  function updateFsBadge() {
+    if (!S.fs) return;
+    setText('fsLeft', S.fs.left); setText('fsMult', '\u00D7' + S.fs.mult);
+  }
 
   function beginFreeSpins(n, atBet) {
-    S.fs = { left: n, total: 0, bet: atBet || E.BETS[P.betIdx], spins: 0 };
+    S.fs = { left: n, total: 0, bet: atBet || E.BETS[P.betIdx], spins: 0, mult: E.FS_LADDER[0], usedMult: E.FS_LADDER[0] };
     P.fs = S.fs; P.stats.fsRounds += 1; save();
     S.phase = 'overlay';
     setText('fsIntroNum', n);
     const para = $('fsIntroOverlay') && $('fsIntroOverlay').querySelector('p');
-    if (para) para.innerHTML = 'All wins are <b>doubled</b> during free spins. More red packets add more spins.';
+    if (para) para.innerHTML = 'Wins start at <b>\u00D72</b> and every winning spin in a row climbs the ladder: \u00D73, \u00D74, \u00D75. A blank spin drops back to \u00D72. More red packets add more spins.';
     show('fsIntroOverlay');
     FX.redPackets(30); FX.coinFountain(30);
     AU.sfx.fsIntro();
@@ -633,7 +701,7 @@ window.addEventListener('error', function (e) {
   }
   function startFreeSpins() {
     hide('fsIntroOverlay');
-    setText('fsLeft', S.fs.left); show('fsBadge');
+    updateFsBadge(); show('fsBadge');
     AU.setTempo(1.15);
     S.phase = 'idle';
     refreshControls();
@@ -665,9 +733,257 @@ window.addEventListener('error', function (e) {
     S.shownCredits = P.credits; updateHud(); refreshControls();
     setMsg('JACKPOT collected! The meter starts again at ' + fmt(E.JACKPOT.seed) + '.');
     const res = S.result;
-    if (res && S.fs) { afterPresentation({ jackpot: { hit: false }, scatter: res.scatter, total: res.total }); }
+    if (S.jpFromWheel) { S.jpFromWheel = false; finishBonus(); return; }
+    if (res && S.fs) { afterPresentation({ jackpot: { hit: false }, scatter: res.scatter, pick: res.pick, total: res.total }); }
     else if (res && res.scatter.freeSpins) later(function () { beginFreeSpins(res.scatter.freeSpins); }, 500);
   }
+
+  // ---------------------------------------------------------------- bonus: Fortune Pick
+  // Three Golds (one on each of reels 2–4) → open 3 of 12 red packets; each holds a multiple of the bet.
+  function beginPick(b) {
+    P.bonus = { type: 'pick', bet: b, layout: E.pickLayout(), opened: [], total: 0, id: Date.now() };
+    P.stats.picks += 1; save();
+    showPick();
+  }
+  function showPick() {
+    const bo = P.bonus; if (!bo || bo.type !== 'pick') return;
+    S.phase = 'overlay';
+    const grid = $('pickGrid'); grid.innerHTML = '';
+    bo.layout.forEach(function (mult, i) {
+      const btn = document.createElement('button'); btn.className = 'packet'; btn.setAttribute('data-i', i);
+      const opened = bo.opened.indexOf(i) >= 0;
+      btn.innerHTML = opened ? '<b>' + fmt(mult * bo.bet) + '</b><span>\u00D7' + mult + '</span>' : '<i>\u798F</i>';
+      if (opened) btn.classList.add('open');
+      btn.addEventListener('click', function () { openPacket(i); });
+      grid.appendChild(btn);
+    });
+    updatePickText();
+    hide('pickCollectRow'); if (bo.opened.length >= E.PICK.picks) revealPickRest();
+    show('pickOverlay');
+    AU.sfx.fsIntro(); FX.redPackets(24);
+    armPickAutoPick();
+  }
+  function updatePickText() {
+    const bo = P.bonus; const left = E.PICK.picks - bo.opened.length;
+    setText('pickLeft', left > 0 ? ('Open ' + left + ' more red packet' + (left === 1 ? '' : 's')) : 'All picked!');
+    setText('pickTotal', fmt(bo.total));
+  }
+  let pickTimer = 0;
+  function armPickAutoPick() { // if nobody taps (e.g. autoplay), open packets by itself
+    clearTimeout(pickTimer);
+    pickTimer = later(function () { const bo = P.bonus; if (!bo || bo.type !== 'pick') return; if (bo.opened.length < E.PICK.picks) { const closed = bo.layout.map(function (_, i) { return i; }).filter(function (i) { return bo.opened.indexOf(i) < 0; }); openPacket(closed[Math.floor(Math.random() * closed.length)]); } else collectPick(); }, S.auto > 0 ? 1500 : 12000);
+  }
+  function openPacket(i) {
+    const bo = P.bonus; if (!bo || bo.type !== 'pick' || bo.opened.indexOf(i) >= 0 || bo.opened.length >= E.PICK.picks) return;
+    const prize = bo.layout[i] * bo.bet;
+    bo.opened.push(i); bo.total += prize;
+    P.credits += prize; P.stats.won += prize; if (P.credits > P.best.balance) P.best.balance = P.credits;
+    save();
+    const btn = $('pickGrid').querySelector('[data-i="' + i + '"]');
+    if (btn) { btn.classList.add('open'); btn.innerHTML = '<b>' + fmt(prize) + '</b><span>\u00D7' + bo.layout[i] + '</span>'; }
+    AU.sfx.coin(); AU.sfx.winLine();
+    if (btn) { const r = btn.getBoundingClientRect(); FX.coinFountain(bo.layout[i] >= 5 ? 30 : 12, r.left + r.width / 2, r.top + r.height / 2, 0.8); }
+    if (bo.layout[i] >= 5) AU.sfx.fanfare(1);
+    updatePickText(); updateHud();
+    if (bo.opened.length >= E.PICK.picks) { later(revealPickRest, 500); }
+    armPickAutoPick();
+  }
+  function revealPickRest() {
+    const bo = P.bonus; if (!bo) return;
+    $('pickGrid').querySelectorAll('.packet').forEach(function (btn) {
+      const i = parseInt(btn.getAttribute('data-i'), 10);
+      if (bo.opened.indexOf(i) < 0) { btn.classList.add('missed'); btn.innerHTML = '<b>' + fmt(bo.layout[i] * bo.bet) + '</b><span>\u00D7' + bo.layout[i] + '</span>'; }
+    });
+    show('pickCollectRow');
+    if (bo.total >= bo.bet * 10) { AU.sfx.fanfare(2); FX.goldRain(20, 2500); }
+  }
+  function collectPick() {
+    clearTimeout(pickTimer);
+    const bo = P.bonus; const total = bo ? bo.total : 0;
+    P.bonus = null; save();
+    hide('pickOverlay');
+    setMsg('Fortune Pick paid ' + fmt(total) + '!');
+    if (total > P.best.win) { P.best.win = total; save(); }
+    finishBonus();
+  }
+  on('btnPickCollect', 'click', collectPick);
+
+  // ---------------------------------------------------------------- bonus: Lucky Wheel
+  // Mystery trigger after a losing base-game spin. Twelve equal segments; the result is drawn
+  // when the wheel is triggered (and saved), then the wheel animates to it.
+  const wheelCv = $('wheelCanvas'); const wctx = wheelCv ? wheelCv.getContext('2d') : null;
+  let wheel = null; // { angle, from, to, t0, dur, spinning, done }
+  function beginWheel(b) {
+    P.bonus = { type: 'wheel', bet: b, seg: E.spinWheel(), spun: false, id: Date.now() };
+    P.stats.wheels += 1; save();
+    showWheel();
+  }
+  function showWheel() {
+    const bo = P.bonus; if (!bo || bo.type !== 'wheel') return;
+    S.phase = 'overlay';
+    wheel = { angle: 0, spinning: false, done: false };
+    setText('wheelResult', ''); show('btnWheelSpin'); hide('wheelCollectRow');
+    show('wheelOverlay');
+    drawWheel();
+    AU.sfx.fsIntro(); FX.confetti(40);
+    const id = bo.id;
+    later(function () { if (P.bonus && P.bonus.id === id && wheel && !wheel.spinning && !wheel.done) spinWheelNow(); }, S.auto > 0 ? 1200 : 4000);
+  }
+  function wheelLabel(seg) { return seg.t === 'x' ? seg.v + '\u00D7' : seg.t === 'fs' ? seg.v + ' FREE' : 'JACKPOT'; }
+  function drawWheel() {
+    if (!wctx || !wheel) return;
+    const size = 300, r = size / 2 - 6, cx = size / 2, cy = size / 2; const dp = Math.min(2, window.devicePixelRatio || 1);
+    if (wheelCv.width !== size * dp) { wheelCv.width = size * dp; wheelCv.height = size * dp; wheelCv.style.width = size + 'px'; wheelCv.style.height = size + 'px'; }
+    wctx.setTransform(dp, 0, 0, dp, 0, 0); wctx.clearRect(0, 0, size, size);
+    const segs = E.WHEEL.segments, n = segs.length, step = Math.PI * 2 / n;
+    wctx.save(); wctx.translate(cx, cy); wctx.rotate(wheel.angle);
+    for (let i = 0; i < n; i++) {
+      const a0 = -Math.PI / 2 + i * step, a1 = a0 + step; const seg = segs[i];
+      wctx.beginPath(); wctx.moveTo(0, 0); wctx.arc(0, 0, r, a0, a1); wctx.closePath();
+      wctx.fillStyle = seg.t === 'jackpot' ? '#e0262b' : seg.t === 'fs' ? '#2f6fbf' : (i % 2 ? '#f5c518' : '#fff3b0'); wctx.fill();
+      wctx.strokeStyle = '#8a5a00'; wctx.lineWidth = 2; wctx.stroke();
+      wctx.save(); wctx.rotate(a0 + step / 2); wctx.textAlign = 'right'; wctx.textBaseline = 'middle';
+      wctx.fillStyle = seg.t === 'x' ? '#4a0509' : '#fff'; wctx.font = '900 ' + (seg.t === 'jackpot' ? 13 : 17) + 'px Arial, Helvetica, sans-serif';
+      wctx.fillText(wheelLabel(seg), r - 10, 0); wctx.restore();
+    }
+    wctx.restore();
+    // hub + rim
+    wctx.strokeStyle = '#ffd34d'; wctx.lineWidth = 6; wctx.beginPath(); wctx.arc(cx, cy, r + 2, 0, 6.283); wctx.stroke();
+    const g = wctx.createRadialGradient(cx - 6, cy - 6, 2, cx, cy, 26); g.addColorStop(0, '#fff7c2'); g.addColorStop(1, '#b07a00');
+    wctx.fillStyle = g; wctx.beginPath(); wctx.arc(cx, cy, 24, 0, 6.283); wctx.fill(); wctx.strokeStyle = '#8a5a00'; wctx.lineWidth = 2; wctx.stroke();
+    // pointer at the top
+    wctx.fillStyle = '#e0262b'; wctx.beginPath(); wctx.moveTo(cx - 14, 2); wctx.lineTo(cx + 14, 2); wctx.lineTo(cx, 30); wctx.closePath(); wctx.fill(); wctx.strokeStyle = '#fff3b0'; wctx.lineWidth = 2; wctx.stroke();
+  }
+  function spinWheelNow() {
+    const bo = P.bonus; if (!bo || bo.type !== 'wheel' || !wheel || wheel.spinning || wheel.done) return;
+    hide('btnWheelSpin');
+    const n = E.WHEEL.segments.length, step = Math.PI * 2 / n;
+    // segment `seg` must end under the pointer (top): rotate by -(centre of segment) plus whole turns
+    const jitter = (Math.random() - 0.5) * step * 0.6;
+    wheel.from = wheel.angle; wheel.to = -(bo.seg * step + step / 2 + jitter) - Math.PI * 2 * 6; wheel.t0 = performance.now(); wheel.dur = 5200; wheel.spinning = true; wheel.lastSeg = -1;
+    AU.sfx.spinStart();
+    const step2 = function (now) {
+      if (!wheel || !wheel.spinning) return;
+      const u = clamp((now - wheel.t0) / wheel.dur, 0, 1); const e = 1 - Math.pow(1 - u, 3);
+      wheel.angle = wheel.from + (wheel.to - wheel.from) * e;
+      const segNow = Math.floor(((-wheel.angle) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) / step);
+      if (segNow !== wheel.lastSeg) { wheel.lastSeg = segNow; AU.sfx.reelTick(); }
+      drawWheel();
+      if (u < 1) requestAnimationFrame(step2); else { wheel.spinning = false; wheel.done = true; wheelLanded(); }
+    };
+    requestAnimationFrame(step2);
+  }
+  function wheelLanded() {
+    const bo = P.bonus; if (!bo) return;
+    const seg = E.WHEEL.segments[bo.seg];
+    let text = '';
+    if (seg.t === 'x') {
+      const prize = seg.v * bo.bet;
+      P.credits += prize; P.stats.won += prize; if (P.credits > P.best.balance) P.best.balance = P.credits; if (prize > P.best.win) P.best.win = prize;
+      text = 'You win ' + fmt(prize) + ' (' + seg.v + '\u00D7 your bet)';
+      AU.sfx.fanfare(seg.v >= 8 ? 2 : 1); FX.coinFountain(seg.v >= 8 ? 50 : 25);
+      if (seg.v >= 8) FX.goldRain(18, 2500);
+    } else if (seg.t === 'fs') {
+      text = seg.v + ' FREE SPINS!';
+      S.after = { fs: seg.v, bet: bo.bet };
+      AU.sfx.fsIntro(); FX.redPackets(30);
+    } else {
+      const amount = Math.round(P.jackpot);
+      P.credits += amount; P.stats.won += amount; P.stats.jackpots += 1; P.jackpot = E.JACKPOT.seed;
+      if (P.credits > P.best.balance) P.best.balance = P.credits; if (amount > P.best.win) P.best.win = amount;
+      text = 'JACKPOT! ' + fmt(amount);
+      bo.jackpotAmount = amount;
+    }
+    bo.spun = true; save();
+    setText('wheelResult', text);
+    show('wheelCollectRow');
+    updateHud();
+    const id = bo.id;
+    later(function () { if (P.bonus && P.bonus.type === 'wheel' && P.bonus.id === id) collectWheel(); }, S.auto > 0 ? 2000 : 8000);
+  }
+  function collectWheel() {
+    const bo = P.bonus; if (!bo) return;
+    const seg = E.WHEEL.segments[bo.seg];
+    P.bonus = null; save();
+    hide('wheelOverlay'); wheel = null;
+    if (seg.t === 'jackpot') {
+      // hand over to the jackpot celebration overlay
+      S.jpFromWheel = true;
+      setText('jpSub', 'Lucky Wheel \u2014 the whole meter is yours'); setText('jpWonAmt', fmt(bo.jackpotAmount || 0));
+      show('jackpotOverlay'); AU.sfx.gong(); later(function () { AU.sfx.fanfare(3); }, 600);
+      FX.fireworksShow(12, 6000); FX.goldRain(30, 6000); FX.dragon(5000); FX.firecrackerString('left', 16); FX.firecrackerString('right', 16);
+      S.phase = 'overlay';
+      return;
+    }
+    setMsg(seg.t === 'x' ? ('Lucky Wheel paid ' + fmt(seg.v * bo.bet) + '!') : ('Lucky Wheel: ' + seg.v + ' free spins!'));
+    finishBonus();
+  }
+  on('btnWheelSpin', 'click', spinWheelNow);
+  on('btnWheelCollect', 'click', collectWheel);
+
+  // ---------------------------------------------------------------- bonus: Double Up
+  // Optional after a base-game win of 1×–25× the bet: guess Red or Black. Fair 50/50, up to 3 rounds.
+  let gambleTimer = 0, gambleTick = 0;
+  function offerDouble(amount, b) {
+    S.gamble = { amount: amount, bet: b, rounds: 0, busy: false };
+    S.phase = 'overlay';
+    renderGamble('Pick a colour to try for ' + fmt(amount * 2) + ' \u2014 or collect ' + fmt(amount) + '.');
+    setText('gambleCard', '?'); $('gambleCard').className = 'card';
+    show('gambleOverlay');
+    armGambleTimer(7);
+  }
+  function renderGamble(msg) {
+    const g = S.gamble; if (!g) return;
+    setText('gambleAmt', fmt(g.amount)); setText('gambleMsg', msg);
+    setText('btnGambleCollect', 'COLLECT ' + fmt(g.amount));
+    const can = g.rounds < E.DOUBLE.maxRounds;
+    $('btnGambleRed').disabled = !can || g.busy; $('btnGambleBlack').disabled = !can || g.busy;
+  }
+  function armGambleTimer(secs) {
+    clearInterval(gambleTick); clearTimeout(gambleTimer);
+    let left = secs; setText('gambleTimer', 'Auto-collect in ' + left + 's');
+    gambleTick = setInterval(function () { left--; setText('gambleTimer', left > 0 ? ('Auto-collect in ' + left + 's') : ''); }, 1000);
+    gambleTimer = later(collectGamble, secs * 1000);
+  }
+  function gambleGuess(colour) {
+    const g = S.gamble; if (!g || g.busy || g.rounds >= E.DOUBLE.maxRounds) return;
+    clearInterval(gambleTick); clearTimeout(gambleTimer); setText('gambleTimer', '');
+    g.busy = true; renderGamble('Turning the card\u2026');
+    const card = $('gambleCard'); card.className = 'card flip'; setText('gambleCard', '');
+    AU.sfx.button();
+    later(function () {
+      const draw = E.doubleDraw();
+      card.className = 'card ' + draw; setText('gambleCard', draw === 'red' ? '\u2665' : '\u2660');
+      g.rounds += 1;
+      if (draw === colour) {
+        P.credits += g.amount; P.stats.won += g.amount; P.stats.gambleWon += 1; g.amount *= 2;
+        if (P.credits > P.best.balance) P.best.balance = P.credits; if (g.amount > P.best.win) P.best.win = g.amount;
+        save(); updateHud();
+        AU.sfx.fanfare(1); FX.coinFountain(30);
+        g.busy = false;
+        if (g.rounds >= E.DOUBLE.maxRounds) { renderGamble(draw.toUpperCase() + '! Doubled to ' + fmt(g.amount) + '. That is the maximum \u2014 collecting.'); later(collectGamble, 1800); }
+        else { renderGamble(draw.toUpperCase() + '! Doubled to ' + fmt(g.amount) + '. Again, or collect?'); armGambleTimer(7); }
+      } else {
+        P.credits -= g.amount; P.stats.gambleLost += 1; const lost = g.amount; g.amount = 0;
+        save(); updateHud();
+        AU.sfx.lose();
+        renderGamble(draw.toUpperCase() + ' \u2014 not this time. ' + fmt(lost) + ' gone. Better luck on the next spin!');
+        setText('btnGambleCollect', 'OK');
+        $('btnGambleRed').disabled = true; $('btnGambleBlack').disabled = true;
+        later(collectGamble, 2500);
+      }
+    }, 900);
+  }
+  function collectGamble() {
+    clearInterval(gambleTick); clearTimeout(gambleTimer);
+    const g = S.gamble; S.gamble = null;
+    hide('gambleOverlay');
+    if (g && g.amount > 0 && g.rounds > 0) setMsg('Collected ' + fmt(g.amount) + '!');
+    finishBonus();
+  }
+  on('btnGambleRed', 'click', function () { gambleGuess('red'); });
+  on('btnGambleBlack', 'click', function () { gambleGuess('black'); });
+  on('btnGambleCollect', 'click', collectGamble);
 
   // ---------------------------------------------------------------- refill / bet
   function refill() {
@@ -692,7 +1008,7 @@ window.addEventListener('error', function (e) {
     setText('jpValue', fmt(P.jackpot));
     setText('betTxt', fmt(currentBet())); setText('betBig', fmt(currentBet()));
     if (!S.present) { S.shownCredits = P.credits; setText('credits', fmt(P.credits)); }
-    if (S.fs) { setText('fsLeft', S.fs.left); show('fsBadge'); } else hide('fsBadge');
+    if (S.fs) { updateFsBadge(); show('fsBadge'); } else hide('fsBadge');
     requestFrame();
   }
   function refreshControls() {
@@ -732,16 +1048,25 @@ window.addEventListener('error', function (e) {
         info.appendChild(vals);
         if (id === 'SEVEN') { const n = document.createElement('div'); n.className = 'pnote'; n.textContent = 'Five Lucky 7s on a line also win the whole JACKPOT meter.'; info.appendChild(n); }
       } else if (id === 'WILD') {
-        const n = document.createElement('div'); n.className = 'pnote'; n.textContent = 'Stands in for any fruit, Bell, Bar or 7 (not the Red Packet). Appears on reels 2, 3 and 4. Any line win that uses a Gold Ingot is doubled.'; info.appendChild(n);
+        const n = document.createElement('div'); n.className = 'pnote'; n.textContent = 'Stands in for any fruit, Bell, Bar or 7 (not the Red Packet). Appears on reels 2, 3 and 4. Any line win that uses a Gold is doubled. Three Golds at once (one on each of reels 2, 3 and 4) start the FORTUNE PICK.'; info.appendChild(n);
       } else if (id === 'SCATTER') {
         vals.textContent = Object.keys(E.SCATTER_PAY).map(function (k) { return k + '× = ' + fmt(E.SCATTER_PAY[k] * b) + ' + ' + E.FREE_SPINS[k] + ' free spins'; }).join(' \u00B7 ');
         info.appendChild(vals);
-        const n = document.createElement('div'); n.className = 'pnote'; n.textContent = 'Counts anywhere on the reels. All wins during free spins are doubled; more red packets during free spins add more spins.'; info.appendChild(n);
+        const n = document.createElement('div'); n.className = 'pnote'; n.textContent = 'Counts anywhere on the reels. Free-spin wins start at \u00D72 and climb \u00D73 \u2192 \u00D74 \u2192 \u00D75 with every winning spin in a row (a blank spin resets to \u00D72). More red packets during free spins add more spins.'; info.appendChild(n);
       }
       row.appendChild(c); row.appendChild(info); list.appendChild(row);
     });
+    const h = document.createElement('h3'); h.textContent = 'BONUS ROUNDS'; list.appendChild(h);
+    const bonuses = [
+      ['\u2728 Gold Rush', 'At random, before the reels stop, one or two of reels 2\u20134 turn completely Gold \u2014 every symbol on them becomes a Gold for that spin.'],
+      ['\uD83E\uDDE7 Fortune Pick', 'Three Golds showing at once (one on each of reels 2, 3 and 4): open 3 of 12 red packets. Each holds ' + Math.min.apply(null, E.PICK.prizes) + '\u00D7 to ' + Math.max.apply(null, E.PICK.prizes) + '\u00D7 your bet (' + fmt(Math.min.apply(null, E.PICK.prizes) * b) + ' to ' + fmt(Math.max.apply(null, E.PICK.prizes) * b) + ' at your current bet).'],
+      ['\uD83C\uDFA1 Lucky Wheel', 'Can appear by surprise after a spin that won nothing. Twelve equal slices: 2\u00D7 to 15\u00D7 your bet, 5 or 10 free spins, or the whole JACKPOT meter.'],
+      ['\uD83C\uDCCF Double Up', 'After a win of 1\u00D7 to 25\u00D7 your bet you may guess Red or Black: right doubles the win, wrong loses it. A fair 50/50, up to 3 times. Always optional \u2014 COLLECT keeps the win (auto-collects after 7 s). Can be switched off in Settings.'],
+      ['\u2666 JACKPOT', 'Five Lucky 7s on a line (Golds may fill in) win the whole meter. ' + (E.JACKPOT.rate * 100).toFixed(1) + '% of every bet is added; it restarts at ' + fmt(E.JACKPOT.seed) + ' after it is won.'],
+    ];
+    bonuses.forEach(function (bn) { const row = document.createElement('div'); row.className = 'bonusRow'; row.innerHTML = '<b></b><span></span>'; row.querySelector('b').textContent = bn[0]; row.querySelector('span').textContent = bn[1]; list.appendChild(row); });
     const foot = document.createElement('div'); foot.className = 'pnote'; foot.style.marginTop = '6px';
-    foot.textContent = 'Jackpot meter: ' + (E.JACKPOT.rate * 100).toFixed(1) + '% of every bet is added; it restarts at ' + fmt(E.JACKPOT.seed) + ' after it is won. Free play only — no real money.';
+    foot.textContent = 'Free play only \u2014 no real money.';
     list.appendChild(foot);
   }
   function renderAudioStatus() {
@@ -754,6 +1079,8 @@ window.addEventListener('error', function (e) {
     const rows = [
       ['Biggest single win', fmt(P.best.win)], ['Highest balance', fmt(P.best.balance)], ['Jackpots hit', fmt(P.stats.jackpots)],
       ['Big wins (4× bet or more)', fmt(P.stats.bigWins)], ['Free-spin rounds', fmt(P.stats.fsRounds)], ['Total spins', fmt(P.stats.spins)],
+      ['Gold Rush spins', fmt(P.stats.goldRush)], ['Fortune Picks', fmt(P.stats.picks)], ['Lucky Wheels', fmt(P.stats.wheels)],
+      ['Double Up won / lost', fmt(P.stats.gambleWon) + ' / ' + fmt(P.stats.gambleLost)],
       ['Total wagered', fmt(P.stats.wagered)], ['Total won', fmt(P.stats.won)], ['Refills used', fmt(P.stats.refills)],
     ];
     dl.innerHTML = '';
@@ -762,11 +1089,15 @@ window.addEventListener('error', function (e) {
   }
 
   // ---------------------------------------------------------------- festival themes
+  // Theme previews are not shown in Settings (Dad only ever sees the automatic theme).
+  // For testing, open the page with ?theme=<id> (e.g. ?theme=zhongqiu); it is never saved.
+  let urlTheme = null;
+  try { const q = new URLSearchParams(location.search).get('theme'); if (q && TH && TH.THEMES[q]) urlTheme = q; } catch (e) {}
   function currentTheme() {
     if (!TH) return null;
-    if (P.themeOverride && P.themeOverride !== 'auto' && TH.THEMES[P.themeOverride]) {
-      const b = TH.THEMES[P.themeOverride];
-      return { id: P.themeOverride, variant: P.themeOverride, dayIndex: 0, name: b.name, zh: b.zh, en: b.en, ambient: b.ambient, palette: b.palette, year: new Date().getFullYear(), preview: true };
+    if (urlTheme) {
+      const b = TH.THEMES[urlTheme];
+      return { id: urlTheme, variant: urlTheme, dayIndex: 0, name: b.name, zh: b.zh, en: b.en, ambient: b.ambient, palette: b.palette, year: new Date().getFullYear(), preview: true };
     }
     try { return TH.resolve(new Date()); } catch (e) { return null; }
   }
@@ -815,23 +1146,6 @@ window.addEventListener('error', function (e) {
   setInterval(function () { applyTheme(false); }, 60000);
   document.addEventListener('visibilitychange', function () { if (!document.hidden) applyTheme(false); });
 
-  function renderThemePicker() {
-    const sel = $('themeSelect'); if (!sel || !TH) return;
-    const auto = TH.resolve(new Date());
-    sel.innerHTML = '';
-    const optAuto = document.createElement('option'); optAuto.value = 'auto';
-    optAuto.textContent = 'Auto \u2014 today: ' + (auto ? auto.name : 'everyday look'); sel.appendChild(optAuto);
-    Object.keys(TH.THEMES).forEach(function (id) { const o = document.createElement('option'); o.value = id; o.textContent = 'Preview: ' + TH.THEMES[id].name; sel.appendChild(o); });
-    sel.value = P.themeOverride || 'auto';
-    const nx = TH.next(new Date());
-    const today = new Date();
-    const fmtD = function (d) { return d.d + ' ' + ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.m - 1] + ' ' + d.y; };
-    setText('nextFest', 'Today: ' + fmtD({ y: today.getFullYear(), m: today.getMonth() + 1, d: today.getDate() }) + (nx ? ' \u00B7 Next: ' + nx.name + ' \u2014 ' + fmtD(nx.date) + (nx.inDays === 0 ? ' (today)' : nx.inDays === 1 ? ' (tomorrow)' : ' (in ' + nx.inDays + ' days)') : ''));
-  }
-  on('themeSelect', 'change', function () {
-    const v = $('themeSelect').value; P.themeOverride = (v === 'auto' || (TH && TH.THEMES[v])) ? v : 'auto'; save(); applyTheme(true);
-  });
-
   // ---------------------------------------------------------------- overlays helpers
   function openOverlay(id) { if (S.phase !== 'idle') return false; S.phase = 'overlay'; show(id); return true; }
   function closeOverlay(id) { hide(id); if (S.phase === 'overlay') S.phase = 'idle'; refreshControls(); }
@@ -873,15 +1187,17 @@ window.addEventListener('error', function (e) {
   on('btnPays', 'click', function () { AU.sfx.button(); if (S.present) skipPresentation(); if (openOverlay('paysOverlay')) renderPaytable(); });
   on('btnPaysBack', 'click', function () { closeOverlay('paysOverlay'); });
 
-  on('btnMore', 'click', function () { AU.sfx.button(); if (S.present) skipPresentation(); if (openOverlay('moreOverlay')) { renderRecords(); renderThemePicker(); renderAudioStatus(); } });
+  on('btnMore', 'click', function () { AU.sfx.button(); if (S.present) skipPresentation(); if (openOverlay('moreOverlay')) { renderRecords(); renderAudioStatus(); $('btnGamble').setAttribute('aria-pressed', P.gamble ? 'true' : 'false'); } });
+  on('btnGamble', 'click', function () { P.gamble = !P.gamble; $('btnGamble').setAttribute('aria-pressed', P.gamble ? 'true' : 'false'); save(); AU.sfx.button(); });
   on('btnMoreBack', 'click', function () { closeOverlay('moreOverlay'); });
   on('btnSfx', 'click', function () { P.sfx = !P.sfx; AU.setSfx(P.sfx); $('btnSfx').setAttribute('aria-pressed', P.sfx ? 'true' : 'false'); save(); AU.sfx.button(); later(renderAudioStatus, 300); });
   on('btnMusic', 'click', function () { P.music = !P.music; AU.setMusic(P.music); $('btnMusic').setAttribute('aria-pressed', P.music ? 'true' : 'false'); save(); later(renderAudioStatus, 300); });
   on('btnReset', 'click', function () { hide('moreOverlay'); show('resetOverlay'); });
   on('btnResetNo', 'click', function () { hide('resetOverlay'); show('moreOverlay'); });
   on('btnResetYes', 'click', function () {
-    const keep = { sfx: P.sfx, music: P.music, turbo: P.turbo, gifts: P.gifts };
-    P = defaultProfile(); P.sfx = keep.sfx; P.music = keep.music; P.turbo = keep.turbo; P.gifts = keep.gifts;
+    const keep = { sfx: P.sfx, music: P.music, turbo: P.turbo, gifts: P.gifts, gamble: P.gamble };
+    P = defaultProfile(); P.sfx = keep.sfx; P.music = keep.music; P.turbo = keep.turbo; P.gifts = keep.gifts; P.gamble = keep.gamble;
+    S.reelGold = null; S.goldWipe = null; S.goldRush = null; S.after = null; S.gamble = null; hide('pickOverlay'); hide('wheelOverlay'); hide('gambleOverlay');
     S.fs = null; S.auto = 0; S.idleHighlight = null; S.result = null; S.stops = null; S.grid = null;
     save(); initReels();
     hide('resetOverlay'); hide('fsBadge'); S.phase = 'idle';
@@ -909,17 +1225,19 @@ window.addEventListener('error', function (e) {
     // Resolve a spin that was interrupted by a reload: the bet was already taken.
     if (P.pending) {
       const pend = P.pending;
-      S.stops = pend.stops; S.grid = E.gridFromStops(S.stops);
-      const res = E.evaluate(S.grid, pend.bet, { freeSpins: !!S.fs, jackpot: P.jackpot });
+      S.stops = pend.stops; S.reelGold = pend.gold || null; S.grid = E.applyGoldRush(E.gridFromStops(S.stops), S.reelGold);
+      const res = E.evaluate(S.grid, pend.bet, { freeSpins: !!S.fs, multiplier: S.fs ? S.fs.mult : undefined, jackpot: P.jackpot, noPick: !!S.reelGold });
       if (res.jackpot.hit) { P.stats.jackpots += 1; P.jackpot = E.JACKPOT.seed; }
       P.credits += res.total; P.stats.won += res.total;
       if (res.total > P.best.win) P.best.win = res.total;
-      if (S.fs) { S.fs.spins += 1; S.fs.left -= 1; S.fs.total += res.total; if (res.scatter.freeSpins) S.fs.left += res.scatter.freeSpins; P.fs = S.fs; }
-      P.pending = null; save();
+      if (S.fs) { S.fs.spins += 1; S.fs.left -= 1; S.fs.total += res.total; if (res.scatter.freeSpins) S.fs.left += res.scatter.freeSpins; S.fs.mult = E.nextLadder(S.fs.mult, res.lineTotal + res.scatter.pay > 0); P.fs = S.fs; }
+      P.pending = null;
+      if (res.pick.hit && !P.bonus) { P.bonus = { type: 'pick', bet: pend.bet, layout: E.pickLayout(), opened: [], total: 0 }; P.stats.picks += 1; S.after = { fs: (!S.fs && res.scatter.freeSpins) || 0, bet: pend.bet }; }
+      save();
       initReels();
       setMsg(res.total > 0 ? ('Your last spin finished while the app was closed: won ' + fmt(res.total)) : 'Welcome back!');
       setText('win', fmt(res.total));
-      if (!S.fs && res.scatter.freeSpins) later(function () { beginFreeSpins(res.scatter.freeSpins, pend.bet); }, 800);
+      if (!S.fs && res.scatter.freeSpins && !P.bonus) later(function () { beginFreeSpins(res.scatter.freeSpins, pend.bet); }, 800);
     } else {
       S.stops = null; initReels();
       setMsg(P.stats.spins === 0 ? 'Welcome! Tap SPIN to play. Free credits, no real money.' : 'Welcome back — good luck!');
@@ -936,9 +1254,15 @@ window.addEventListener('error', function (e) {
       $('fsIntroOverlay').querySelector('p').textContent = 'Resuming your free-spin round — ' + S.fs.left + ' spins left. All wins doubled.';
     } else if (S.fs) { S.fs = null; P.fs = null; save(); }
 
+    // Resume an interrupted bonus round (its result/layout was saved when it was triggered).
+    if (P.bonus && P.bonus.type === 'pick') later(showPick, 600);
+    else if (P.bonus && P.bonus.type === 'wheel') later(function () { if (P.bonus.spun) { P.bonus = null; save(); } else showWheel(); }, 600);
+
     // Festival theme for today (after the free-spin check so the birthday gift never stacks on it).
     applyTheme(true);
     if (S.theme && !P.pending && S.phase === 'idle') setMsg(S.theme.en + (S.theme.sub ? ' \u00B7 ' + S.theme.sub : ''));
   }
   boot();
+  // Read-only hook for the automated browser tests (phase of the game loop).
+  window.JP_DEBUG = { phase: function () { return S.phase; } };
 })();

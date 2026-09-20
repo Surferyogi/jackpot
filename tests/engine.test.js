@@ -20,14 +20,14 @@ t('three bells on middle line pays 15× line bet', () => {
   const g = G([['CHERRY','PLUM','ORANGE','MELON','BAR'], ['BELL','BELL','BELL','CHERRY','PLUM'], ['ORANGE','MELON','BAR','LEMON','ORANGE']]);
   const r = E.evaluate(g, 100, {});
   assert.strictEqual(r.lineWins.length, 1); assert.strictEqual(r.lineWins[0].symbol, 'BELL'); assert.strictEqual(r.lineWins[0].count, 3);
-  assert.strictEqual(r.lineWins[0].pay, 15 * 5); assert.strictEqual(r.total, 75);
+  assert.strictEqual(r.lineWins[0].pay, E.PAY.BELL[3] * 5); assert.strictEqual(r.total, E.PAY.BELL[3] * 5);
 });
 t('wild substitutes and doubles', () => {
   const g = G([['BAR','WILD','WILD','WILD','BAR'], [X,'CHERRY',X,'CHERRY',X], ['CHERRY',X,'CHERRY',X,'CHERRY']]);
   const r = E.evaluate(g, 20, {});
   const top = r.lineWins.find((w) => w.line === 1);
   assert.ok(top && top.symbol === 'BAR' && top.count === 5 && top.wild);
-  assert.strictEqual(top.pay, 300 * 1 * 2);
+  assert.strictEqual(top.pay, E.PAY.BAR[5] * 1 * 2);
 });
 t('no pay for two of a kind except cherry', () => {
   const g = G([['BAR','BAR',X,'PLUM',X], ['CHERRY','CHERRY','PLUM',X,'PLUM'], [X,'PLUM',X,'PLUM',X]]);
@@ -47,16 +47,42 @@ t('scatters anywhere: 3 → 10 free spins + 2× bet', () => {
 t('free-spin multiplier doubles line and scatter pays', () => {
   const g = N(); g[0][1] = 'BELL'; g[1][1] = 'BELL'; g[2][1] = 'BELL'; g[0][0] = 'SCATTER'; g[1][2] = 'SCATTER'; g[3][2] = 'SCATTER'; g[4][0] = 'SCATTER';
   const r = E.evaluate(g, 100, { freeSpins: true });
-  assert.strictEqual(r.multiplier, 2); assert.strictEqual(r.lineTotal, 150); assert.strictEqual(r.scatter.count, 4); assert.strictEqual(r.scatter.pay, 5 * 100 * 2); assert.strictEqual(r.scatter.freeSpins, 15);
+  assert.strictEqual(r.multiplier, 2); assert.strictEqual(r.lineTotal, E.PAY.BELL[3] * 5 * 2); assert.strictEqual(r.scatter.count, 4); assert.strictEqual(r.scatter.pay, 5 * 100 * 2); assert.strictEqual(r.scatter.freeSpins, 15);
 });
 t('five sevens wins the meter and reports the line', () => {
   const g = N(); g[0][1] = 'SEVEN'; g[1][1] = 'SEVEN'; g[2][1] = 'WILD'; g[3][1] = 'SEVEN'; g[4][1] = 'SEVEN';
   const r = E.evaluate(g, 100, { jackpot: 5432.6 });
   assert.ok(r.jackpot.hit); assert.strictEqual(r.jackpot.amount, 5433); assert.strictEqual(r.jackpot.line, 0);
-  assert.strictEqual(r.lineTotal, 600 * 5 * 2); assert.strictEqual(r.total, 6000 + 5433);
+  assert.strictEqual(r.lineTotal, E.PAY.SEVEN[5] * 5 * 2); assert.strictEqual(r.total, E.PAY.SEVEN[5] * 5 * 2 + 5433);
   assert.strictEqual(E.winTier(r.total, 100, true), 'jackpot');
 });
 t('win tiers', () => { assert.strictEqual(E.winTier(0, 100, false), 'none'); assert.strictEqual(E.winTier(399, 100, false), 'win'); assert.strictEqual(E.winTier(400, 100, false), 'big'); assert.strictEqual(E.winTier(1000, 100, false), 'mega'); assert.strictEqual(E.winTier(2500, 100, false), 'epic'); });
 t('spinStops respects strip lengths and rng', () => { const s = E.spinStops(() => 0.999999); s.forEach((v) => assert.strictEqual(v, 47)); const z = E.spinStops(() => 0); z.forEach((v) => assert.strictEqual(v, 0)); });
 t('gridFromStops wraps', () => { const g = E.gridFromStops([47, 0, 0, 0, 0]); assert.strictEqual(g[0][0], E.STRIPS[0][47]); assert.strictEqual(g[0][1], E.STRIPS[0][0]); assert.strictEqual(g[0][2], E.STRIPS[0][1]); });
+t('fortune pick triggers only with a Gold on each of reels 2-4', () => {
+  const g = N(); g[1][0] = 'WILD'; g[2][2] = 'WILD'; g[3][1] = 'WILD';
+  const r = E.evaluate(g, 100, {}); assert.ok(r.pick.hit); assert.strictEqual(r.pick.positions.length, 3);
+  const g2 = N(); g2[1][0] = 'WILD'; g2[2][2] = 'WILD'; assert.ok(!E.evaluate(g2, 100, {}).pick.hit);
+  assert.ok(!E.evaluate(g, 100, { noPick: true }).pick.hit, 'suppressed during Gold Rush');
+});
+t('gold rush turns whole reels to Gold and never touches reels 1 or 5', () => {
+  const g = E.applyGoldRush(N(), [1, 3]);
+  assert.deepStrictEqual(g[1], ['WILD', 'WILD', 'WILD']); assert.deepStrictEqual(g[3], ['WILD', 'WILD', 'WILD']); assert.deepStrictEqual(g[0], ['LEMON', 'LEMON', 'LEMON']);
+  const seq = [0.0001, 0.5, 0.9]; let i = 0; const rng = () => seq[i++];
+  assert.deepStrictEqual(E.rollGoldRush(rng), [2]); // hit, pick middle, no second reel
+  i = 0; const seq2 = [0.0001, 0.0, 0.1, 0.0]; const rng2 = () => seq2[i++];
+  assert.deepStrictEqual(E.rollGoldRush(rng2), [1, 2]);
+  assert.strictEqual(E.rollGoldRush(() => 0.99), null);
+});
+t('free-spin ladder climbs on wins and resets on blanks', () => {
+  assert.strictEqual(E.nextLadder(2, true), 3); assert.strictEqual(E.nextLadder(3, true), 4); assert.strictEqual(E.nextLadder(5, true), 5); assert.strictEqual(E.nextLadder(4, false), 2);
+  const g = N(); g[0][1] = 'BELL'; g[1][1] = 'BELL'; g[2][1] = 'BELL';
+  assert.strictEqual(E.evaluate(g, 100, { freeSpins: true, multiplier: 5 }).lineTotal, E.PAY.BELL[3] * 5 * 5);
+});
+t('wheel and pick helpers are uniform and complete', () => {
+  assert.strictEqual(E.WHEEL.segments.length, 12); assert.strictEqual(E.spinWheel(() => 0), 0); assert.strictEqual(E.spinWheel(() => 0.999), 11);
+  const lay = E.pickLayout(() => 0.5); assert.strictEqual(lay.length, E.PICK.prizes.length); assert.deepStrictEqual(lay.slice().sort((a, b) => a - b), E.PICK.prizes.slice().sort((a, b) => a - b));
+  assert.ok(E.canDouble(100, 100) && E.canDouble(2500, 100) && !E.canDouble(99, 100) && !E.canDouble(2501, 100));
+  assert.strictEqual(E.doubleDraw(() => 0.2), 'red'); assert.strictEqual(E.doubleDraw(() => 0.8), 'black');
+});
 console.log(n + ' tests passed');
