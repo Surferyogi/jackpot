@@ -45,6 +45,13 @@ title font is the only external request, and the page works without it).
 Paytable (× line bet): 7 = 30/120/600 · Bar = 20/75/300 · Bell = 15/40/150 · Melon = 10/30/80 ·
 Plum = 8/20/60 · Orange = 5/15/40 · Lemon = 4/10/30 · Cherry = 2 (for two)/4/10/30.
 
+Reel animation: symbols are pre-rendered to sprites once per size, then drawn with transforms, which keeps
+the reels alive cheaply — idle symbols breathe and bob, Lucky 7s carry a soft halo, the Gold Ingot glints,
+Red Packets wiggle, a light sweep crosses the window every few seconds, reels squash-and-stretch on landing
+and blur while spinning. On a win the payline draws in from the left, a light pulse travels along it, winning
+symbols pop in left-to-right then pulse and wobble, sparkles rise out of the winning cells and the frame glows.
+Idle drawing is throttled to ~30 fps; busy phases run at full rate.
+
 Celebration tiers by win ÷ bet: `win` < 4× (line flash + chime, coins if ≥ 1×) · **BIG WIN** ≥ 4× (banner,
 coin fountains, lanterns, fanfare) · **MEGA WIN** ≥ 10× (gong, firecracker strings both sides, gold rain, 福) ·
 **EPIC WIN** ≥ 25× (dragon fly-over, fireworks, drums) · **JACKPOT** (all of it, full-screen overlay, 8-second count-up).
@@ -114,7 +121,7 @@ cd ~/Downloads
 unzip jackpot.zip && cd jackpot
 git init
 git add .
-git commit -m "Jackpot v2026:09:20-04:45 — initial PWA release"
+git commit -m "Jackpot v2026:09:20-05:19 — initial PWA release"
 git remote add origin https://github.com/Surferyogi/jackpot.git
 git branch -M main
 git push -u origin main

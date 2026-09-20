@@ -112,6 +112,7 @@ window.addEventListener('error', function (e) {
     requestFrame();
   }
   window.addEventListener('resize', layout);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) { lastDrawT = 0; requestFrame(); } });
 
   function cellCenter(r, k) { return { x: padX + (r + 0.5) * cell, y: padY + (k + 0.5) * cell }; }
   function easeOutBack(u) { const c1 = 1.4, c3 = c1 + 1; return 1 + c3 * Math.pow(u - 1, 3) + c1 * Math.pow(u - 1, 2); }
@@ -123,18 +124,72 @@ window.addEventListener('error', function (e) {
   }
 
   // ---------------------------------------------------------------- drawing
-  function drawFrame() {
+  // Symbol sprites: each symbol is rendered once per size into an offscreen canvas, then
+  // drawn with drawImage. That makes the idle/win animations (scale, wobble, blur) cheap.
+  const spriteCache = {};
+  function sprite(id, size) {
+    const px = Math.round(size * dpr); const key = id + '@' + px;
+    let sp = spriteCache[key];
+    if (sp) return sp;
+    const box = Math.round(size * 1.2); // margin for leaves/stems that poke past the symbol box
+    const c = document.createElement('canvas'); c.width = Math.round(box * dpr); c.height = Math.round(box * dpr);
+    const cx = c.getContext('2d'); cx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ART.drawSymbol(cx, id, box / 2, box / 2, size);
+    sp = { c: c, box: box };
+    spriteCache[key] = sp;
+    return sp;
+  }
+  // Draw a symbol centred at (x,y) with optional scale (sx, sy), rotation and alpha.
+  function drawSym(id, x, y, size, o) {
+    const sp = sprite(id, size);
+    o = o || {};
+    ctx.save();
+    ctx.translate(x, y);
+    if (o.rot) ctx.rotate(o.rot);
+    const sx = o.sx != null ? o.sx : (o.s || 1), sy = o.sy != null ? o.sy : (o.s || 1);
+    if (sx !== 1 || sy !== 1) ctx.scale(sx, sy);
+    if (o.alpha != null) ctx.globalAlpha = o.alpha;
+    ctx.drawImage(sp.c, -sp.box / 2, -sp.box / 2, sp.box, sp.box);
+    ctx.restore();
+  }
+  function star4(x, y, r, col, alpha) {
+    ctx.save(); ctx.globalAlpha = alpha == null ? 1 : alpha; ctx.fillStyle = col;
+    ctx.beginPath(); ctx.moveTo(x, y - r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.quadraticCurveTo(x, y, x, y + r); ctx.quadraticCurveTo(x, y, x - r, y); ctx.quadraticCurveTo(x, y, x, y - r); ctx.fill();
+    ctx.restore();
+  }
+
+  function drawFrame(now) {
     if (!ctx) return;
     // outer frame (gold) and window (cream)
     const g = ctx.createLinearGradient(0, 0, W, H);
     g.addColorStop(0, '#b07a00'); g.addColorStop(0.3, '#ffe680'); g.addColorStop(0.55, '#f5c518'); g.addColorStop(1, '#8a5a00');
     ctx.fillStyle = g; ART.roundRect(ctx, 0, 0, W, H, 16); ctx.fill();
+    // frame glow while a win is being shown
+    if (S.present || S.idleHighlight) {
+      const a = 0.35 + 0.35 * Math.sin(now / 160);
+      ctx.save(); ctx.strokeStyle = 'rgba(255,240,160,' + a + ')'; ctx.lineWidth = 6; ART.roundRect(ctx, 3, 3, W - 6, H - 6, 14); ctx.stroke(); ctx.restore();
+    }
     ctx.fillStyle = '#fff6e0'; ART.roundRect(ctx, padX - 4, padY - 4, W - padX * 2 + 8, H - padY * 2 + 8, 10); ctx.fill();
   }
 
+  // In-window sparkle particles (win cells, wild glints). Kept small and drawn on the reel canvas.
+  let sparks = [];
+  function addSpark(x, y, vx, vy, col, life) { if (sparks.length < 90) sparks.push({ x, y, vx, vy, col: col || '#ffe680', life: 1, decay: 1 / (life || 0.7), r: 2 + Math.random() * 3 }); }
+  function drawSparks(dt) {
+    const keep = [];
+    for (let i = 0; i < sparks.length; i++) {
+      const p = sparks[i]; p.life -= p.decay * dt; if (p.life <= 0) continue;
+      p.vy += 300 * dt; p.x += p.vx * dt; p.y += p.vy * dt; keep.push(p);
+      star4(p.x, p.y, p.r * (0.5 + p.life), p.col, Math.min(1, p.life * 1.5));
+    }
+    sparks = keep;
+  }
+
+  let lastDrawT = 0;
   function drawReels(now) {
     if (!ctx) return;
-    drawFrame();
+    const dt = Math.min(0.05, (now - (lastDrawT || now)) / 1000); lastDrawT = now;
+    drawFrame(now);
     ctx.save();
     ctx.beginPath(); ctx.rect(padX, padY, W - padX * 2, H - padY * 2); ctx.clip();
     // reel column shading
@@ -145,21 +200,42 @@ window.addEventListener('error', function (e) {
       ctx.fillStyle = g; ctx.fillRect(x, padY, cell, H - padY * 2);
       if (r > 0) { ctx.fillStyle = 'rgba(120,80,0,0.18)'; ctx.fillRect(x - 1, padY, 2, H - padY * 2); }
     }
+    const size = cell * 0.86;
+    const hl = S.present ? S.present.entry : (S.idleHighlight ? S.idleHighlight.entry : null);
     // symbols
     for (let r = 0; r < E.REELS; r++) {
       const R = S.reels[r]; if (!R) continue;
       const base = Math.floor(R.pos), frac = R.pos - base;
-      const spinning = R.phase === 'spin' || R.phase === 'land';
+      // landing squash & stretch for ~320 ms after the reel stops
+      let bounce = 0;
+      if (R.phase === 'stopped' && R.stoppedAt) { const u = (now - R.stoppedAt) / 320; if (u < 1) bounce = Math.sin(u * Math.PI) * (1 - u); }
       for (let k = -1; k <= E.ROWS; k++) {
         const id = E.symbolAt(r, base + k);
         const y = padY + (k - frac) * cell + cell / 2;
         const x = padX + r * cell + cell / 2;
-        if (spinning && R.phase === 'spin') {
-          ctx.globalAlpha = 0.55; ART.drawSymbol(ctx, id, x, y - cell * 0.18, cell * 0.86);
-          ctx.globalAlpha = 0.55; ART.drawSymbol(ctx, id, x, y + cell * 0.18, cell * 0.86);
-          ctx.globalAlpha = 1;
+        if (R.phase === 'spin') {
+          // motion blur: a stretched ghost plus the symbol itself
+          drawSym(id, x, y, size, { sy: 1.45, alpha: 0.35 });
+          drawSym(id, x, y, size, { alpha: 0.75 });
+        } else if (R.phase === 'land') {
+          drawSym(id, x, y, size);
         } else {
-          ART.drawSymbol(ctx, id, x, y, cell * 0.86);
+          // idle life: gentle breathing/bobbing per cell, plus per-symbol character
+          const ph = (r * 3 + k) * 0.9;
+          const o = { s: 1 + 0.025 * Math.sin(now / 650 + ph) };
+          const dy = 1.5 * Math.sin(now / 800 + ph);
+          if (bounce) { o.sx = (o.s) * (1 + 0.10 * bounce); o.sy = (o.s) * (1 - 0.14 * bounce); }
+          if (id === 'SCATTER') { const w = Math.max(0, Math.sin(now / 1500 + ph)); o.rot = 0.07 * Math.sin(now / 90) * w * w; }
+          if (id === 'SEVEN') { // soft golden halo
+            const a = 0.16 + 0.1 * Math.sin(now / 420 + ph);
+            const g2 = ctx.createRadialGradient(x, y, size * 0.1, x, y, size * 0.6); g2.addColorStop(0, 'rgba(255,220,120,' + a + ')'); g2.addColorStop(1, 'rgba(255,220,120,0)');
+            ctx.fillStyle = g2; ctx.beginPath(); ctx.arc(x, y, size * 0.6, 0, 6.283); ctx.fill();
+          }
+          drawSym(id, x, y + dy, size, o);
+          if (id === 'WILD') { // glint on the ingot
+            const gl = ((now / 1400 + ph * 0.37) % 1 + 1) % 1;
+            if (gl < 0.22) { const a = Math.sin(gl / 0.22 * Math.PI); star4(x - size * 0.18 + gl * size * 0.9, y - size * 0.12 + dy, size * 0.14 * a, '#ffffff', a); }
+          }
         }
       }
       if (R.glow > 0) { // anticipation glow
@@ -167,35 +243,83 @@ window.addEventListener('error', function (e) {
         ctx.fillStyle = 'rgba(245,197,24,' + (a * R.glow) + ')'; ctx.fillRect(padX + r * cell, padY, cell, H - padY * 2);
       }
     }
+    // light sweep across the window every few seconds while idle (no win showing)
+    if (!hl && S.reels.every(function (R) { return R.phase === 'stopped'; })) {
+      const per = 4600, u = (now % per) / per;
+      if (u < 0.22) {
+        const sx = -W * 0.3 + (u / 0.22) * W * 1.6;
+        ctx.save(); ctx.globalCompositeOperation = 'lighter';
+        const g3 = ctx.createLinearGradient(sx - W * 0.12, 0, sx + W * 0.12, 0);
+        g3.addColorStop(0, 'rgba(255,255,255,0)'); g3.addColorStop(0.5, 'rgba(255,250,220,0.32)'); g3.addColorStop(1, 'rgba(255,255,255,0)');
+        ctx.fillStyle = g3; ctx.translate(sx, 0); ctx.transform(1, 0, -0.35, 1, 0, 0); ctx.translate(-sx, 0);
+        ctx.fillRect(sx - W * 0.2, 0, W * 0.4, H); ctx.restore();
+      }
+    }
     // win highlight
-    const hl = S.present ? S.present.entry : (S.idleHighlight ? S.idleHighlight.entry : null);
     if (hl && S.grid) drawHighlight(hl, now);
+    drawSparks(dt);
     ctx.restore();
   }
 
+  // Point at fraction u (0..1) along a polyline of points.
+  function alongPath(pts, u) {
+    let total = 0; const seg = [];
+    for (let i = 1; i < pts.length; i++) { const d = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y); seg.push(d); total += d; }
+    let d = u * total;
+    for (let i = 0; i < seg.length; i++) { if (d <= seg[i] || i === seg.length - 1) { const f = seg[i] ? d / seg[i] : 0; return { x: pts[i].x + (pts[i + 1].x - pts[i].x) * f, y: pts[i].y + (pts[i + 1].y - pts[i].y) * f }; } d -= seg[i]; }
+    return pts[pts.length - 1];
+  }
+
   function drawHighlight(entry, now) {
+    if (!entry.t0) entry.t0 = now;
+    const age = (now - entry.t0) / 1000;
     ctx.fillStyle = 'rgba(40,10,0,0.42)'; ctx.fillRect(padX, padY, W - padX * 2, H - padY * 2);
-    const pulse = 0.5 + 0.5 * Math.sin(now / 120);
+    const pulse = 0.5 + 0.5 * Math.sin(now / 160);
+    const isSc = entry.kind === 'scatter';
+    const col = isSc ? '#e0262b' : '#f5c518';
     if (entry.kind === 'line') {
       const line = E.LINES[entry.line];
-      // payline path across all reels
+      const pts = [];
+      for (let r = 0; r < E.REELS; r++) { const c = cellCenter(r, line[r]); if (r === 0) pts.push({ x: padX, y: c.y }); pts.push(c); if (r === E.REELS - 1) pts.push({ x: W - padX, y: c.y }); }
+      // payline path, drawn in from the left on reveal
+      const reveal = Math.min(1, age / 0.45);
       ctx.save();
       ctx.strokeStyle = 'rgba(255,230,128,0.95)'; ctx.lineWidth = 5; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
       ctx.shadowColor = '#f5c518'; ctx.shadowBlur = 14;
-      ctx.beginPath();
-      for (let r = 0; r < E.REELS; r++) { const c = cellCenter(r, line[r]); if (r === 0) ctx.moveTo(padX, c.y); ctx.lineTo(c.x, c.y); if (r === E.REELS - 1) ctx.lineTo(W - padX, c.y); }
+      ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+      const nSeg = pts.length - 1;
+      for (let i = 1; i < pts.length; i++) { const segEnd = i / nSeg; if (segEnd <= reveal) ctx.lineTo(pts[i].x, pts[i].y); else { const f = (reveal - (i - 1) / nSeg) * nSeg; if (f > 0) ctx.lineTo(pts[i - 1].x + (pts[i].x - pts[i - 1].x) * f, pts[i - 1].y + (pts[i].y - pts[i - 1].y) * f); break; } }
       ctx.stroke();
       ctx.restore();
+      // travelling light pulse with a short comet tail
+      if (reveal >= 1) {
+        const u = ((age - 0.45) % 1.1) / 1.1;
+        for (let t = 0; t < 4; t++) {
+          const uu = u - t * 0.035; if (uu < 0) continue;
+          const pnt = alongPath(pts, uu); const rr = cell * (0.22 - t * 0.04);
+          const g = ctx.createRadialGradient(pnt.x, pnt.y, 0, pnt.x, pnt.y, rr);
+          g.addColorStop(0, 'rgba(255,255,255,' + (0.95 - t * 0.2) + ')'); g.addColorStop(0.4, 'rgba(255,230,128,' + (0.6 - t * 0.12) + ')'); g.addColorStop(1, 'rgba(255,230,128,0)');
+          ctx.fillStyle = g; ctx.beginPath(); ctx.arc(pnt.x, pnt.y, rr, 0, 6.283); ctx.fill();
+        }
+      }
     }
-    entry.positions.forEach(function (p) {
+    entry.positions.forEach(function (p, i) {
       const c = cellCenter(p[0], p[1]);
+      // reveal pop (staggered left to right), then a lively pulse + wobble
+      const a0 = Math.max(0, age - i * 0.06);
+      const pop = a0 < 0.4 ? Math.sin(a0 / 0.4 * Math.PI) * 0.3 : 0;
+      const sc = 1.02 + pop + 0.05 * Math.sin(now / 150 + i);
+      let rot = 0.06 * Math.sin(now / 130 + i * 0.7);
+      if (isSc) rot = a0 < 1.2 ? 0.16 * Math.sin(now / 35) * (1 - a0 / 1.2) : 0.05 * Math.sin(now / 200 + i);
       ctx.save();
-      ctx.shadowColor = entry.kind === 'scatter' ? '#e0262b' : '#f5c518'; ctx.shadowBlur = 18 + pulse * 10;
+      ctx.shadowColor = col; ctx.shadowBlur = 18 + pulse * 12;
       ctx.fillStyle = '#fff6e0'; ART.roundRect(ctx, c.x - cell * 0.47, c.y - cell * 0.47, cell * 0.94, cell * 0.94, cell * 0.14); ctx.fill();
       ctx.restore();
-      ctx.strokeStyle = entry.kind === 'scatter' ? '#e0262b' : '#f5c518'; ctx.lineWidth = 3 + pulse * 2;
+      ctx.strokeStyle = col; ctx.lineWidth = 3 + pulse * 2;
       ART.roundRect(ctx, c.x - cell * 0.47, c.y - cell * 0.47, cell * 0.94, cell * 0.94, cell * 0.14); ctx.stroke();
-      ART.drawSymbol(ctx, S.grid[p[0]][p[1]], c.x, c.y, cell * (0.9 + pulse * 0.06));
+      drawSym(S.grid[p[0]][p[1]], c.x, c.y, cell * 0.9, { s: sc, rot: rot });
+      // sparkles rising out of the winning cell
+      if (Math.random() < (a0 < 0.5 ? 0.6 : 0.12)) addSpark(c.x + (Math.random() - 0.5) * cell * 0.7, c.y + (Math.random() - 0.5) * cell * 0.6, (Math.random() - 0.5) * 90, -60 - Math.random() * 120, isSc ? '#ffb3b3' : '#ffe680', 0.6 + Math.random() * 0.4);
     });
   }
 
@@ -225,7 +349,7 @@ window.addEventListener('error', function (e) {
         busy = true;
         const u = clamp((now - R.landT0) / t.land, 0, 1);
         R.pos = R.target + (R.start - R.target) * (1 - easeOutBack(u));
-        if (u >= 1) { R.pos = R.target; R.phase = 'stopped'; R.glow = 0; onReelStopped(r); }
+        if (u >= 1) { R.pos = R.target; R.phase = 'stopped'; R.glow = 0; R.stoppedAt = now; onReelStopped(r); }
       }
       if (R.glow > 0 && R.phase === 'stopped') R.glow = 0;
     }
@@ -235,7 +359,7 @@ window.addEventListener('error', function (e) {
     else if (S.idleHighlight) {
       busy = true;
       const ih = S.idleHighlight;
-      if (now - ih.t > t.lineCycle * 1.4) { ih.t = now; ih.idx = (ih.idx + 1) % ih.entries.length; ih.entry = ih.entries[ih.idx]; }
+      if (now - ih.t > t.lineCycle * 1.4) { ih.t = now; ih.idx = (ih.idx + 1) % ih.entries.length; ih.entry = ih.entries[ih.idx]; ih.entry.t0 = now; }
     }
 
     // animated numbers
@@ -246,8 +370,12 @@ window.addEventListener('error', function (e) {
       setText('credits', fmt(S.shownCredits));
     }
 
-    drawReels(now);
-    if (busy) requestFrame();
+    // Idle: keep the reels alive (breathing symbols, glints, light sweep) at ~30 fps to save battery;
+    // busy phases (spinning, wins, count-ups) run at full frame rate.
+    if (busy || document.hidden === false) {
+      if (busy || now - lastDrawT >= 32) drawReels(now);
+      requestFrame();
+    }
   }
   function creditsTarget() {
     // during a count-up the credits climb together with the win display
@@ -352,6 +480,7 @@ window.addEventListener('error', function (e) {
     S.phase = 'present';
     const dur = t.tier[tier];
     S.present = { res, tier, entries, idx: 0, entry: entries[0], entryT: performance.now(), t0: performance.now(), dur, countTotal: res.total, countDur: Math.min(dur * 0.75, 6500), lastTick: 0, done: false, b };
+    if (entries[0]) entries[0].t0 = performance.now();
     S.shownWin = 0;
     if (entries[0]) setMsg(entries[0].caption);
     celebrate(tier, res, b);
@@ -367,7 +496,7 @@ window.addEventListener('error', function (e) {
     const pr = S.present; const t = T();
     // cycle entries
     if (pr.entries.length > 1 && now - pr.entryT > t.lineCycle) {
-      pr.entryT = now; pr.idx = (pr.idx + 1) % pr.entries.length; pr.entry = pr.entries[pr.idx];
+      pr.entryT = now; pr.idx = (pr.idx + 1) % pr.entries.length; pr.entry = pr.entries[pr.idx]; pr.entry.t0 = now;
       setMsg(pr.entry.caption); AU.sfx.winLine();
     }
     // count-up
@@ -388,6 +517,7 @@ window.addEventListener('error', function (e) {
     setText('win', fmt(pr.countTotal)); setText('bannerAmt', fmt(pr.countTotal));
     S.shownCredits = P.credits; setText('credits', fmt(P.credits));
     S.idleHighlight = pr.entries.length ? { entries: pr.entries, idx: pr.idx, entry: pr.entries[pr.idx], t: performance.now() } : null;
+    sparks = [];
     if (pr.tier !== 'jackpot') { hideBanner(); FX.clear(); }
     const ws = $('win'); if (ws && ws.parentElement) { ws.parentElement.classList.remove('pop'); void ws.offsetWidth; ws.parentElement.classList.add('pop'); }
     S.phase = 'idle';
