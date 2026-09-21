@@ -45,9 +45,22 @@
       { t: 'jackpot' }, { t: 'x', v: 3 }, { t: 'fs', v: 10 }, { t: 'x', v: 5 }, { t: 'x', v: 15 }, { t: 'x', v: 2 },
     ],
   };
-  // Double Up (optional, player's choice): after a base-game win of 1×–25× the bet, guess Red or Black.
-  // Fair 50/50; win doubles the amount, lose forfeits it; up to DOUBLE.maxRounds in a row.
-  const DOUBLE = { minX: 1, maxX: 25, maxRounds: 3 };
+  // Double-or-nothing challenges (optional, player's choice). After a base-game win of 1×–25× the
+  // bet, with probability offerProb, one of several simple challenges is offered at random. Every
+  // challenge is fair (expected value exactly the stake): most are 50/50 for double, 'packets' is
+  // 1-in-3 for triple. Up to maxRounds in a row, a fresh random challenge each time.
+  const DOUBLE = {
+    minX: 1, maxX: 25, maxRounds: 3, offerProb: 0.35,
+    games: {
+      coin:    { name: 'Coin Toss',        zh: '\u62DB\u8D22\u786C\u5E01', mult: 2, choices: ['heads', 'tails'] },
+      dice:    { name: 'Big or Small',     zh: '\u731C\u5927\u5C0F',       mult: 2, choices: ['big', 'small'] },
+      cards:   { name: 'Beat the House',   zh: '\u6BD4\u5927\u5C0F',       mult: 2, choices: ['draw'] },
+      cups:    { name: 'Golden Cup',       zh: '\u731C\u676F',             mult: 2, choices: ['left', 'right'] },
+      light:   { name: 'Stop the Light',   zh: '\u505C\u706F',             mult: 2, choices: ['stop'] },
+      rps:     { name: 'Rock Paper Scissors', zh: '\u526A\u5200\u77F3\u5934\u5E03', mult: 2, choices: ['rock', 'paper', 'scissors'] },
+      packets: { name: 'Lucky Packet',     zh: '\u9009\u7EA2\u5305',       mult: 3, choices: ['0', '1', '2'] },
+    },
+  };
 
   const LINE_COUNT = 20;
   // 20 fixed paylines: row index (0 top, 1 middle, 2 bottom) per reel.
@@ -212,7 +225,28 @@
   }
   function nextLadder(mult, won) { if (!won) return FS_LADDER[0]; const i = FS_LADDER.indexOf(mult); return i < 0 ? FS_LADDER[0] : FS_LADDER[Math.min(FS_LADDER.length - 1, i + 1)]; }
   function canDouble(total, totalBet) { return total >= DOUBLE.minX * totalBet && total <= DOUBLE.maxX * totalBet; }
-  function doubleDraw(rng) { rng = rng || defaultRng; return rng() < 0.5 ? 'red' : 'black'; }
+  function rollDoubleOffer(rng) { rng = rng || defaultRng; return rng() < DOUBLE.offerProb; }
+  function pickChallenge(rng) { rng = rng || defaultRng; const keys = Object.keys(DOUBLE.games); return keys[Math.floor(rng() * keys.length)]; }
+  /* resolveChallenge(kind, choice, rng) → { win, tie, mult, detail }
+     coin: detail.result 'heads'|'tails'            dice: detail.value 1..6 (big = 4..6)
+     cards: detail.you, detail.house (1..13, never equal)   cups: detail.index 0|1 (where the ingot is)
+     light: detail.result 'gold'|'black'            rps: detail.house 'rock'|'paper'|'scissors' (tie → replay)
+     packets: detail.index 0..2 (the triple packet) */
+  function resolveChallenge(kind, choice, rng) {
+    rng = rng || defaultRng;
+    const g = DOUBLE.games[kind]; if (!g) return null;
+    const out = { kind: kind, mult: g.mult, win: false, tie: false, detail: {} };
+    switch (kind) {
+      case 'coin': out.detail.result = rng() < 0.5 ? 'heads' : 'tails'; out.win = out.detail.result === choice; break;
+      case 'dice': out.detail.value = Math.floor(rng() * 6) + 1; out.win = (out.detail.value >= 4) === (choice === 'big'); break;
+      case 'cards': { let you = Math.floor(rng() * 13) + 1, house = Math.floor(rng() * 13) + 1; while (house === you) house = Math.floor(rng() * 13) + 1; out.detail.you = you; out.detail.house = house; out.win = you > house; break; }
+      case 'cups': out.detail.index = rng() < 0.5 ? 0 : 1; out.win = (choice === 'left' ? 0 : 1) === out.detail.index; break;
+      case 'light': out.detail.result = rng() < 0.5 ? 'gold' : 'black'; out.win = out.detail.result === 'gold'; break;
+      case 'rps': { const h = ['rock', 'paper', 'scissors'][Math.floor(rng() * 3)]; out.detail.house = h; if (h === choice) out.tie = true; else out.win = (choice === 'rock' && h === 'scissors') || (choice === 'paper' && h === 'rock') || (choice === 'scissors' && h === 'paper'); break; }
+      case 'packets': out.detail.index = Math.floor(rng() * 3); out.win = String(out.detail.index) === String(choice); break;
+    }
+    return out;
+  }
 
   // Win tier for celebrations, by total win ÷ total bet.
   function winTier(total, totalBet, jackpotHit) {
@@ -232,7 +266,7 @@
     GOLD_RUSH, PICK, WHEEL, DOUBLE,
     LINE_COUNT, LINES, BETS, JACKPOT, START_CREDITS, REFILL_CREDITS, STRIPS,
     defaultRng, spinStops, gridFromStops, symbolAt, evaluate, winTier, jackpotContribution,
-    rollGoldRush, applyGoldRush, rollWheel, spinWheel, pickLayout, nextLadder, canDouble, doubleDraw,
+    rollGoldRush, applyGoldRush, rollWheel, spinWheel, pickLayout, nextLadder, canDouble, rollDoubleOffer, pickChallenge, resolveChallenge,
   };
 
   root.JP_ENGINE = ENGINE;

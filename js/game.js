@@ -34,7 +34,7 @@ window.addEventListener('error', function (e) {
       sfx: true, music: true, turbo: false,
       best: { win: 0, balance: E.START_CREDITS },
       stats: { spins: 0, wagered: 0, won: 0, refills: 0, jackpots: 0, fsRounds: 0, bigWins: 0, goldRush: 0, picks: 0, wheels: 0, gambleWon: 0, gambleLost: 0 },
-      gamble: true,           // offer Double Up after qualifying base-game wins
+      gamble: true,           // offer double-or-nothing challenges after qualifying base-game wins
       bonus: null,            // an in-progress Fortune Pick / Lucky Wheel, so it survives a reload
       themeOverride: 'auto',  // 'auto' = festival theme by today's date; otherwise a theme id chosen in Settings
       gifts: { birthdayYear: 0 }, // Gregorian year in which the birthday gift was last given
@@ -656,7 +656,7 @@ window.addEventListener('error', function (e) {
     if (S.after.fs) { const n = S.after.fs; S.after = null; later(function () { beginFreeSpins(n, b); }, 500); return; }
     S.after = null;
     if (res.total === 0 && E.rollWheel()) { later(function () { beginWheel(b); }, 450); return; }
-    if (res.total > 0 && P.gamble && S.auto === 0 && E.canDouble(res.total, b)) { offerDouble(res.total, b); return; }
+    if (res.total > 0 && P.gamble && S.auto === 0 && E.canDouble(res.total, b) && E.rollDoubleOffer()) { offerDouble(res.total, b); return; }
     continueBaseGame();
   }
   function continueFreeSpins(hadWin) {
@@ -921,23 +921,29 @@ window.addEventListener('error', function (e) {
   on('btnWheelSpin', 'click', spinWheelNow);
   on('btnWheelCollect', 'click', collectWheel);
 
-  // ---------------------------------------------------------------- bonus: Double Up
-  // Optional after a base-game win of 1×–25× the bet: guess Red or Black. Fair 50/50, up to 3 rounds.
+  // ---------------------------------------------------------------- bonus: double-or-nothing challenges
+  // Offered at random (DOUBLE.offerProb) after a base-game win of 1×–25× the bet. A random challenge
+  // each round (coin, dice, cards, cups, light, rock-paper-scissors, packets); all fair; up to 3 rounds.
+  const CH = window.JP_CHALLENGE;
   let gambleTimer = 0, gambleTick = 0;
   function offerDouble(amount, b) {
-    S.gamble = { amount: amount, bet: b, rounds: 0, busy: false };
+    S.gamble = { amount: amount, bet: b, rounds: 0, busy: false, kind: null };
     S.phase = 'overlay';
-    renderGamble('Pick a colour to try for ' + fmt(amount * 2) + ' \u2014 or collect ' + fmt(amount) + '.');
-    setText('gambleCard', '?'); $('gambleCard').className = 'card';
     show('gambleOverlay');
-    armGambleTimer(7);
+    nextChallenge('You won ' + fmt(amount) + '. Try a challenge to double it, or COLLECT to keep it.');
+    AU.sfx.fsIntro();
   }
-  function renderGamble(msg) {
+  function nextChallenge(intro) {
     const g = S.gamble; if (!g) return;
-    setText('gambleAmt', fmt(g.amount)); setText('gambleMsg', msg);
+    g.kind = E.pickChallenge(); g.busy = false;
+    const tx = CH.text(g.kind);
+    setText('gTitle', tx.title); setText('gZh', tx.zh);
+    setText('gambleAmt', fmt(g.amount));
+    setText('gambleMsg', (intro ? intro + ' ' : '') + tx.instruction);
     setText('btnGambleCollect', 'COLLECT ' + fmt(g.amount));
-    const can = g.rounds < E.DOUBLE.maxRounds;
-    $('btnGambleRed').disabled = !can || g.busy; $('btnGambleBlack').disabled = !can || g.busy;
+    $('btnGambleCollect').disabled = false;
+    CH.setup(g.kind, $('gStage'), $('gChoices'), function (choice) { challengeChoice(choice); });
+    armGambleTimer(10);
   }
   function armGambleTimer(secs) {
     clearInterval(gambleTick); clearTimeout(gambleTimer);
@@ -945,34 +951,58 @@ window.addEventListener('error', function (e) {
     gambleTick = setInterval(function () { left--; setText('gambleTimer', left > 0 ? ('Auto-collect in ' + left + 's') : ''); }, 1000);
     gambleTimer = later(collectGamble, secs * 1000);
   }
-  function gambleGuess(colour) {
-    const g = S.gamble; if (!g || g.busy || g.rounds >= E.DOUBLE.maxRounds) return;
+  function challengeChoice(choice) {
+    const g = S.gamble; if (!g || g.busy) return;
     clearInterval(gambleTick); clearTimeout(gambleTimer); setText('gambleTimer', '');
-    g.busy = true; renderGamble('Turning the card\u2026');
-    const card = $('gambleCard'); card.className = 'card flip'; setText('gambleCard', '');
-    AU.sfx.button();
-    later(function () {
-      const draw = E.doubleDraw();
-      card.className = 'card ' + draw; setText('gambleCard', draw === 'red' ? '\u2665' : '\u2660');
-      g.rounds += 1;
-      if (draw === colour) {
-        P.credits += g.amount; P.stats.won += g.amount; P.stats.gambleWon += 1; g.amount *= 2;
-        if (P.credits > P.best.balance) P.best.balance = P.credits; if (g.amount > P.best.win) P.best.win = g.amount;
-        save(); updateHud();
-        AU.sfx.fanfare(1); FX.coinFountain(30);
-        g.busy = false;
-        if (g.rounds >= E.DOUBLE.maxRounds) { renderGamble(draw.toUpperCase() + '! Doubled to ' + fmt(g.amount) + '. That is the maximum \u2014 collecting.'); later(collectGamble, 1800); }
-        else { renderGamble(draw.toUpperCase() + '! Doubled to ' + fmt(g.amount) + '. Again, or collect?'); armGambleTimer(7); }
+    g.busy = true;
+    $('gChoices').querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+    $('btnGambleCollect').disabled = true;
+    const out = E.resolveChallenge(g.kind, choice);
+    out.choice = choice; if (g.kind === 'cups') out.chosenIndex = choice === 'left' ? 0 : 1;
+    setText('gambleMsg', 'Here we go…');
+    AU.sfx.spinStart();
+    CH.reveal(g.kind, $('gStage'), out, function () { challengeResult(out); });
+  }
+  function challengeResult(out) {
+    const g = S.gamble; if (!g) return;
+    $('btnGambleCollect').disabled = false;
+    if (out.tie) {
+      AU.sfx.button();
+      setText('gambleMsg', 'A tie! Play again.');
+      later(function () { if (S.gamble) { CH.setup(g.kind, $('gStage'), $('gChoices'), function (c) { challengeChoice(c); }); g.busy = false; setText('gambleMsg', 'A tie — same again. ' + CH.text(g.kind).instruction); armGambleTimer(10); } }, 1400);
+      return;
+    }
+    g.rounds += 1;
+    if (out.win) {
+      const gain = g.amount * (out.mult - 1);
+      P.credits += gain; P.stats.won += gain; P.stats.gambleWon += 1; g.amount *= out.mult;
+      if (P.credits > P.best.balance) P.best.balance = P.credits; if (g.amount > P.best.win) P.best.win = g.amount;
+      save(); updateHud();
+      AU.sfx.fanfare(out.mult >= 3 ? 2 : 1); FX.coinFountain(out.mult >= 3 ? 50 : 30);
+      setText('gambleAmt', fmt(g.amount)); setText('btnGambleCollect', 'COLLECT ' + fmt(g.amount));
+      if (g.rounds >= E.DOUBLE.maxRounds || !E.canDouble(g.amount, g.bet * 4)) {
+        setText('gambleMsg', (out.mult >= 3 ? 'TRIPLE! ' : 'YES! ') + 'You now have ' + fmt(g.amount) + '. That is the maximum — collecting.');
+        later(collectGamble, 2200);
       } else {
-        P.credits -= g.amount; P.stats.gambleLost += 1; const lost = g.amount; g.amount = 0;
-        save(); updateHud();
-        AU.sfx.lose();
-        renderGamble(draw.toUpperCase() + ' \u2014 not this time. ' + fmt(lost) + ' gone. Better luck on the next spin!');
-        setText('btnGambleCollect', 'OK');
-        $('btnGambleRed').disabled = true; $('btnGambleBlack').disabled = true;
-        later(collectGamble, 2500);
+        setText('gambleMsg', (out.mult >= 3 ? 'TRIPLE! ' : 'YES! ') + 'You now have ' + fmt(g.amount) + '. One more challenge, or collect?');
+        $('gChoices').innerHTML = '';
+        const again = document.createElement('button'); again.className = 'btn gch gold'; again.innerHTML = '<b>NEXT CHALLENGE</b><span>round ' + (g.rounds + 1) + ' of ' + E.DOUBLE.maxRounds + '</span>';
+        again.onclick = function () { nextChallenge(''); };
+        $('gChoices').appendChild(again);
+        g.busy = false;
+        armGambleTimer(10);
       }
-    }, 900);
+    } else {
+      const lost = g.amount;
+      P.credits -= g.amount; P.stats.gambleLost += 1; g.amount = 0;
+      save(); updateHud();
+      AU.sfx.lose();
+      setText('gambleAmt', '0');
+      setText('gambleMsg', 'Not this time — ' + fmt(lost) + ' gone. Better luck on the next spin!');
+      setText('btnGambleCollect', 'OK');
+      $('gChoices').innerHTML = '';
+      later(collectGamble, 2600);
+    }
   }
   function collectGamble() {
     clearInterval(gambleTick); clearTimeout(gambleTimer);
@@ -981,8 +1011,6 @@ window.addEventListener('error', function (e) {
     if (g && g.amount > 0 && g.rounds > 0) setMsg('Collected ' + fmt(g.amount) + '!');
     finishBonus();
   }
-  on('btnGambleRed', 'click', function () { gambleGuess('red'); });
-  on('btnGambleBlack', 'click', function () { gambleGuess('black'); });
   on('btnGambleCollect', 'click', collectGamble);
 
   // ---------------------------------------------------------------- refill / bet
@@ -1061,7 +1089,7 @@ window.addEventListener('error', function (e) {
       ['\u2728 Gold Rush', 'At random, before the reels stop, one or two of reels 2\u20134 turn completely Gold \u2014 every symbol on them becomes a Gold for that spin.'],
       ['\uD83E\uDDE7 Fortune Pick', 'Three Golds showing at once (one on each of reels 2, 3 and 4): open 3 of 12 red packets. Each holds ' + Math.min.apply(null, E.PICK.prizes) + '\u00D7 to ' + Math.max.apply(null, E.PICK.prizes) + '\u00D7 your bet (' + fmt(Math.min.apply(null, E.PICK.prizes) * b) + ' to ' + fmt(Math.max.apply(null, E.PICK.prizes) * b) + ' at your current bet).'],
       ['\uD83C\uDFA1 Lucky Wheel', 'Can appear by surprise after a spin that won nothing. Twelve equal slices: 2\u00D7 to 15\u00D7 your bet, 5 or 10 free spins, or the whole JACKPOT meter.'],
-      ['\uD83C\uDCCF Double Up', 'After a win of 1\u00D7 to 25\u00D7 your bet you may guess Red or Black: right doubles the win, wrong loses it. A fair 50/50, up to 3 times. Always optional \u2014 COLLECT keeps the win (auto-collects after 7 s). Can be switched off in Settings.'],
+      ['\uD83C\uDFB2 Challenges', 'Now and then after a win of 1\u00D7 to 25\u00D7 your bet, a quick challenge is offered: Coin Toss, Big or Small (dice), Beat the House (cards), Golden Cup, Stop the Light, Rock Paper Scissors, or Lucky Packet (one of three holds TRIPLE). Win = double (triple for the packet), lose = the win is gone. All fair odds, up to 3 rounds. Always optional \u2014 COLLECT keeps the win (auto-collects after 10 s). Can be switched off in Settings.'],
       ['\u2666 JACKPOT', 'Five Lucky 7s on a line (Golds may fill in) win the whole meter. ' + (E.JACKPOT.rate * 100).toFixed(1) + '% of every bet is added; it restarts at ' + fmt(E.JACKPOT.seed) + ' after it is won.'],
     ];
     bonuses.forEach(function (bn) { const row = document.createElement('div'); row.className = 'bonusRow'; row.innerHTML = '<b></b><span></span>'; row.querySelector('b').textContent = bn[0]; row.querySelector('span').textContent = bn[1]; list.appendChild(row); });
@@ -1080,7 +1108,7 @@ window.addEventListener('error', function (e) {
       ['Biggest single win', fmt(P.best.win)], ['Highest balance', fmt(P.best.balance)], ['Jackpots hit', fmt(P.stats.jackpots)],
       ['Big wins (4× bet or more)', fmt(P.stats.bigWins)], ['Free-spin rounds', fmt(P.stats.fsRounds)], ['Total spins', fmt(P.stats.spins)],
       ['Gold Rush spins', fmt(P.stats.goldRush)], ['Fortune Picks', fmt(P.stats.picks)], ['Lucky Wheels', fmt(P.stats.wheels)],
-      ['Double Up won / lost', fmt(P.stats.gambleWon) + ' / ' + fmt(P.stats.gambleLost)],
+      ['Challenges won / lost', fmt(P.stats.gambleWon) + ' / ' + fmt(P.stats.gambleLost)],
       ['Total wagered', fmt(P.stats.wagered)], ['Total won', fmt(P.stats.won)], ['Refills used', fmt(P.stats.refills)],
     ];
     dl.innerHTML = '';

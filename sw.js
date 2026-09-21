@@ -1,7 +1,7 @@
 /* Jackpot — service worker
    Cache-first app shell, network-first for navigations so new deploys arrive.
    Bump CACHE_VERSION on every release together with APP_VERSION in js/config.js. */
-const CACHE_VERSION = 'jackpot-v2026-09-20-0716';
+const CACHE_VERSION = 'jackpot-v2026-09-21-0322';
 const SHELL = [
   './',
   './index.html',
@@ -12,6 +12,7 @@ const SHELL = [
   './js/art.js',
   './js/audio.js',
   './js/fx.js',
+  './js/challenges.js',
   './js/lunar.js',
   './js/themes.js',
   './js/game.js',

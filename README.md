@@ -23,6 +23,7 @@ Same architecture and deploy loop as Seven Wonders, minus Supabase.
 | Art | `js/art.js` — every symbol drawn as vector shapes on canvas | Client |
 | Audio | `js/audio.js` — WebAudio SFX (reel ticks/stops, coins, gong, drums, firecrackers, fireworks, fanfares) + an original pentatonic music loop | Client |
 | Effects | `js/fx.js` — full-screen celebration canvas: coin fountains, gold rain, fireworks, firecracker strings, rising lanterns, red packets, confetti, golden dragon fly-over, 福 glyph | Client |
+| Challenges | `js/challenges.js` — the seven double-or-nothing challenge screens (DOM/CSS animations); outcomes come from the engine | Client |
 | Calendar | `js/lunar.js` — Chinese lunisolar calendar computed astronomically (Meeus new moons + solar longitude, Beijing time); no lookup tables, so it has no end date | Client |
 | Themes | `js/themes.js` — which festival is active today (windows, priority), greetings, banner motifs | Client |
 | Controller | `js/game.js` — state, persistence, reel animation, win presentation, free spins, autoplay, turbo, refill, paytable, records, festival theme application, birthday gift | Client |
@@ -41,7 +42,7 @@ title font is the only external request, and the page works without it).
 - **Red Packet** counts anywhere: 3 / 4 / 5 → **10 / 15 / 20 free spins** plus 2× / 5× / 20× total bet. Red packets during free spins add more spins.
 - **Progressive jackpot:** 1.5 % of every bet feeds the meter (seeded at 5,000). **Five Lucky 7s on a payline** (Golds may substitute) win the whole meter on top of the line pay; the meter restarts at 5,000.
 
-### Bonus rounds (all in `js/engine.js` → `GOLD_RUSH`, `PICK`, `WHEEL`, `DOUBLE`, `FS_LADDER`)
+### Bonus rounds (maths in `js/engine.js` → `GOLD_RUSH`, `PICK`, `WHEEL`, `DOUBLE`, `FS_LADDER`; challenge screens in `js/challenges.js`)
 
 | Round | How it starts | What happens |
 |---|---|---|
@@ -49,7 +50,7 @@ title font is the only external request, and the page works without it).
 | **Gold Rush** | Random, base game, 1 in 75 spins (25 % of those hit two reels) | Before the reels settle, one or two of reels 2–4 sweep to solid Gold (a golden wipe animation), then the spin is paid with those reels fully wild. |
 | **Fortune Pick 红包大抽奖** | A Gold showing on each of reels 2, 3 and 4 at once (≈ 1 in 135 spins) | Open 3 of 12 red packets; each holds 1× to 8× the bet (prizes `1,1,1,1,2,2,2,3,3,5,5,8`), then the rest are revealed. Prizes are credited as they are opened, so a reload cannot lose them. |
 | **Lucky Wheel 转运轮** | Mystery trigger after a base-game spin that won nothing (1 in 90 of those, ≈ 1 in 200 spins) | Twelve equal slices chosen uniformly: 2×, 2×, 2×, 3×, 3×, 5×, 5×, 8×, 15× the bet, 5 free spins, 10 free spins, or the whole JACKPOT meter. The result is drawn and saved when the wheel appears; the wheel then animates to it. |
-| **Double Up** | Offered after a base-game win of 1×–25× the bet (not on autoplay; can be switched off in Settings) | Guess Red or Black: a fair 50/50 — right doubles the win, wrong forfeits it — up to 3 rounds. COLLECT keeps the current amount; auto-collects after 7 s. RTP-neutral. |
+| **Double-or-nothing challenges** | Offered *at random* (35 % of the time) after a base-game win of 1×–25× the bet; not on autoplay; can be switched off in Settings | One of seven simple challenges, picked at random each round: **Coin Toss** 招财硬币 (heads/tails), **Big or Small** 猜大小 (one die, 4–6 vs 1–3), **Beat the House** 比大小 (tap DRAW, higher card wins, ties redraw), **Golden Cup** 猜杯 (gold under one of two cups), **Stop the Light** 停灯 (tap STOP, land on gold), **Rock Paper Scissors** 剪刀石头布 (ties replay), **Lucky Packet** 选红包 (one of three packets holds TRIPLE). Win = double (triple for the packet), lose = the win is forfeited. Every challenge is fair — expected return exactly the stake (verified in `tests/engine.test.js` over 200k trials each). Up to 3 rounds; COLLECT always available; auto-collects after 10 s. |
 
 Fortune Pick and the Lucky Wheel survive an app close: their layout/result is stored in the profile and re-shown on the next open.
 - Credits: start at 5,000. Whenever the balance cannot cover the current bet, a **REFILL +5,000** button replaces SPIN (no waiting, no limit — the refill count is shown in Records for honesty).
@@ -110,7 +111,7 @@ newyear fathersday birthday`. It is never saved, and preview mode never triggers
 
 Simulated from the actual engine code with every bonus round exactly as the game runs it (free-spin
 ladder, Gold Rush, Fortune Pick, Lucky Wheel incl. its free spins and jackpots, 7s jackpot). 1,000,000
-spins per bet. Double Up is a fair 50/50 and is not simulated (it neither adds nor removes expected value).
+spins per bet. The challenges are fair (expected return = stake) and are not simulated; they neither add nor remove expected value.
 
 | Bet | RTP total | Lines | Scatter | Free spins | Gold Rush | Fortune Pick | Lucky Wheel | Jackpot (7s) | Hit rate |
 |---|---|---|---|---|---|---|---|---|---|
@@ -138,7 +139,7 @@ cd ~/Downloads
 unzip jackpot.zip && cd jackpot
 git init
 git add .
-git commit -m "Jackpot v2026:09:20-07:16 — initial PWA release"
+git commit -m "Jackpot v2026:09:21-03:22 — initial PWA release"
 git remote add origin https://github.com/Surferyogi/jackpot.git
 git branch -M main
 git push -u origin main
@@ -203,7 +204,7 @@ safe and does not touch saves:
 node tests/engine.test.js      # deterministic engine tests (paylines, wilds, scatters, jackpot, strips)
 node tests/lunar.test.js       # Chinese calendar vs Hong Kong Observatory tables 2025–2040 + Meeus worked examples
 node tests/themes.browser.js   # headless Chromium with a shifted clock: every festival theme, birthday gift, ?theme= override (needs playwright)
-node tests/bonus.browser.js    # forces Gold Rush, Fortune Pick, Lucky Wheel (15×, free spins, jackpot) and Double Up win/loss; checks credits
+node tests/bonus.browser.js    # forces Gold Rush, Fortune Pick, Lucky Wheel (15×, free spins, jackpot), every challenge (forced win), a forced loss and the offer gate; checks credits
 node tests/simulate.js 2000000 100   # RTP / hit-rate simulation
 node tests/browser.js          # headless Chromium: iPhone + iPad screenshots, forced big/mega/free-spin/jackpot outcomes, persistence, refill (needs `npm i playwright`)
 ```

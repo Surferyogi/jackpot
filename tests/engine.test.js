@@ -83,6 +83,29 @@ t('wheel and pick helpers are uniform and complete', () => {
   assert.strictEqual(E.WHEEL.segments.length, 12); assert.strictEqual(E.spinWheel(() => 0), 0); assert.strictEqual(E.spinWheel(() => 0.999), 11);
   const lay = E.pickLayout(() => 0.5); assert.strictEqual(lay.length, E.PICK.prizes.length); assert.deepStrictEqual(lay.slice().sort((a, b) => a - b), E.PICK.prizes.slice().sort((a, b) => a - b));
   assert.ok(E.canDouble(100, 100) && E.canDouble(2500, 100) && !E.canDouble(99, 100) && !E.canDouble(2501, 100));
-  assert.strictEqual(E.doubleDraw(() => 0.2), 'red'); assert.strictEqual(E.doubleDraw(() => 0.8), 'black');
+});
+t('every double-or-nothing challenge is fair (expected return = stake) and resolves sensibly', () => {
+  function mulberry(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t2 = Math.imul(a ^ a >>> 15, 1 | a); t2 = t2 + Math.imul(t2 ^ t2 >>> 7, 61 | t2) ^ t2; return ((t2 ^ t2 >>> 14) >>> 0) / 4294967296; }; }
+  const rng = mulberry(777);
+  Object.keys(E.DOUBLE.games).forEach((kind) => {
+    const g = E.DOUBLE.games[kind]; let ret = 0, n = 0, ties = 0;
+    for (let i = 0; i < 200000; i++) {
+      const choice = g.choices[Math.floor(rng() * g.choices.length)];
+      const r = E.resolveChallenge(kind, choice, rng);
+      if (r.tie) { ties++; continue; }
+      n++; ret += r.win ? r.mult : 0;
+    }
+    const ev = ret / n;
+    assert.ok(Math.abs(ev - 1) < 0.02, kind + ' expected value ' + ev.toFixed(3));
+    if (kind === 'rps') assert.ok(ties > 60000 && ties < 73000, 'rps ties ~1/3'); else assert.strictEqual(ties, 0);
+  });
+  // deterministic checks
+  assert.strictEqual(E.resolveChallenge('coin', 'heads', () => 0.1).win, true);
+  assert.strictEqual(E.resolveChallenge('dice', 'big', () => 0.99).detail.value, 6);
+  const c = E.resolveChallenge('cards', 'draw', (function () { const seq = [0.5, 0.5, 0.1]; let i = 0; return () => seq[i++]; })()); assert.ok(c.detail.you !== c.detail.house);
+  assert.strictEqual(E.resolveChallenge('rps', 'rock', () => 0.9).win, true); // house scissors
+  assert.strictEqual(E.resolveChallenge('rps', 'rock', () => 0.1).tie, true);
+  assert.strictEqual(E.resolveChallenge('packets', '2', () => 0.9).win, true);
+  assert.ok(Object.keys(E.DOUBLE.games).includes(E.pickChallenge(() => 0.5)));
 });
 console.log(n + ' tests passed');

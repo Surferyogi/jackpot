@@ -88,28 +88,44 @@ srv.listen(0, async () => {
   out.wheelJackpot.creditsDelta = (await credits(page)) - c0 + 100; out.wheelJackpot.meterBefore = meter; out.wheelJackpot.meterAfter = await page.textContent('#jpValue');
   await page.evaluate(() => { window.JP_ENGINE.rollWheel = () => false; });
 
-  // ---- 4. Double Up: a 4x win, guess red with a forced red draw, then collect
+  // ---- 4. Challenges: every kind renders; a forced win doubles (packets triples); a forced loss forfeits
   await setGamble(true); await noBonus();
   const winStops = await findStops((r) => r.total >= 300 && r.total <= 800 && !r.pick.hit && !r.scatter.freeSpins);
-  await page.evaluate((s) => { const E = window.JP_ENGINE; E.spinStops = () => s.slice(); E.doubleDraw = () => 'red'; }, winStops);
+  await page.evaluate((s) => { const E = window.JP_ENGINE; E.spinStops = () => s.slice(); E.rollDoubleOffer = () => true; }, winStops);
+  const kinds = await page.evaluate(() => Object.keys(window.JP_ENGINE.DOUBLE.games));
+  out.challenges = {};
+  for (const kind of kinds) {
+    await page.evaluate((k) => { const E = window.JP_ENGINE; E.pickChallenge = () => k; const real = E.resolveChallenge; E._real = E._real || real; E.resolveChallenge = (kk, choice, rng) => { let r = E._real(kk, choice, () => Math.random()); for (let t = 0; t < 200 && !(r.win && !r.tie); t++) r = E._real(kk, choice, () => Math.random()); return r; }; }, kind);
+    c0 = await credits(page);
+    await page.click('#btnSpin');
+    await page.waitForFunction(() => !document.getElementById('gambleOverlay').classList.contains('hidden'), null, { timeout: 20000 });
+    await page.waitForTimeout(1500); await shot(page, 'challenge-' + kind);
+    const amt0 = parseInt((await page.textContent('#gambleAmt')).replace(/,/g, ''), 10);
+    // make the choice: packets use the stage buttons, others the choice row
+    if (kind === 'packets') await (await page.$$('#gStage .gpacket'))[1].click(); else await (await page.$$('#gChoices button'))[0].click();
+    try { await page.waitForFunction(() => /You now have|Not this time|tie/i.test(document.getElementById('gambleMsg').textContent), null, { timeout: 15000 }); }
+    catch (e) { console.log('TIMEOUT on', kind, await page.evaluate(() => ({ msg: document.getElementById('gambleMsg').textContent, overlay: document.getElementById('gambleOverlay').className, phase: window.JP_DEBUG.phase(), buttons: Array.from(document.querySelectorAll('#gChoices button')).map((b) => b.textContent + (b.disabled ? '(off)' : '')) }))); await shot(page, 'challenge-' + kind + '-TIMEOUT'); throw e; }
+    await page.waitForTimeout(300); await shot(page, 'challenge-' + kind + '-result');
+    const amt1 = parseInt((await page.textContent('#gambleAmt')).replace(/,/g, ''), 10);
+    const mult = await page.evaluate((k) => window.JP_ENGINE.DOUBLE.games[k].mult, kind);
+    await page.click('#btnGambleCollect'); await page.waitForTimeout(600); await waitIdle(page);
+    out.challenges[kind] = { title: await page.evaluate(() => document.getElementById('gTitle').textContent), stake: amt0, after: amt1, ok: amt1 === amt0 * mult, creditsDelta: (await credits(page)) - c0 + 100, expected: amt1 };
+  }
+  // forced loss on the dice
+  await page.evaluate(() => { const E = window.JP_ENGINE; E.pickChallenge = () => 'dice'; E.resolveChallenge = (kk, choice) => { let r = E._real(kk, choice, () => Math.random()); for (let t = 0; t < 200 && (r.win || r.tie); t++) r = E._real(kk, choice, () => Math.random()); return r; }; });
   c0 = await credits(page);
   await page.click('#btnSpin');
   await page.waitForFunction(() => !document.getElementById('gambleOverlay').classList.contains('hidden'), null, { timeout: 20000 });
-  await page.waitForTimeout(300); await shot(page, 'double-offer');
-  const amt0 = parseInt((await page.textContent('#gambleAmt')).replace(/,/g, ''), 10);
-  await page.click('#btnGambleRed'); await page.waitForTimeout(1500); await shot(page, 'double-won');
-  const amt1 = parseInt((await page.textContent('#gambleAmt')).replace(/,/g, ''), 10);
+  await (await page.$$('#gChoices button'))[0].click();
+  await page.waitForFunction(() => /Not this time/.test(document.getElementById('gambleMsg').textContent), null, { timeout: 15000 });
+  await shot(page, 'challenge-lost');
+  out.challengeLost = { msg: await page.textContent('#gambleMsg') };
   await page.click('#btnGambleCollect'); await page.waitForTimeout(600); await waitIdle(page);
-  out.doubleUp = { offered: amt0, afterWin: amt1, doubled: amt1 === amt0 * 2, creditsDelta: (await credits(page)) - c0 + 100, expectedDelta: amt1 };
-  // a losing guess
-  await page.evaluate(() => { window.JP_ENGINE.doubleDraw = () => 'black'; });
-  c0 = await credits(page);
-  await page.click('#btnSpin');
-  await page.waitForFunction(() => !document.getElementById('gambleOverlay').classList.contains('hidden'), null, { timeout: 20000 });
-  await page.click('#btnGambleRed'); await page.waitForTimeout(1500); await shot(page, 'double-lost');
-  out.doubleLost = { msg: await page.textContent('#gambleMsg') };
-  await page.click('#btnGambleCollect'); await page.waitForTimeout(600); await waitIdle(page);
-  out.doubleLost.creditsDelta = (await credits(page)) - c0 + 100;
+  out.challengeLost.creditsDelta = (await credits(page)) - c0 + 100;
+  // offer probability respected: with rollDoubleOffer=false no overlay appears
+  await page.evaluate(() => { window.JP_ENGINE.rollDoubleOffer = () => false; });
+  await page.click('#btnSpin'); await page.waitForTimeout(3500); await waitIdle(page);
+  out.noOfferWhenRollFails = await page.$eval('#gambleOverlay', (e) => e.classList.contains('hidden'));
 
   // ---- 5. settings: picker hidden, gamble toggle present; paytable bonus section
   await page.click('#btnMore'); await page.waitForTimeout(300);

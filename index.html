@@ -100,8 +100,8 @@
     <p class="tiny" id="audioStatus"></p>
     <p class="tiny">Sound starts after your first tap. No sound on iPhone? Turn the ring/silent switch off silent, raise the volume buttons, and make sure Sound above is not crossed out.</p>
     <h3>BONUS</h3>
-    <div class="modeRow"><button class="btn tog" id="btnGamble" aria-pressed="true">&#127183; Double Up offers</button></div>
-    <p class="tiny">When on, a win of 1&times;&ndash;25&times; your bet offers a Red/Black guess to double it. Always optional.</p>
+    <div class="modeRow"><button class="btn tog" id="btnGamble" aria-pressed="true">&#127922; Challenge offers</button></div>
+    <p class="tiny">When on, a win of 1&times;&ndash;25&times; your bet sometimes offers a quick double-or-nothing challenge (coin toss, dice, cards, cups, light, rock-paper-scissors, red packets). Always optional.</p>
     <h3>RECORDS</h3>
     <dl id="records"></dl>
     <div class="modeRow">
@@ -162,14 +162,12 @@
 
 <div class="overlay hidden" id="gambleOverlay">
   <div class="sheet festive">
-    <h2>DOUBLE UP?</h2>
+    <h2 id="gTitle">CHALLENGE</h2>
+    <p class="tiny" id="gZh"></p>
     <div class="bigNum" id="gambleAmt">0</div>
-    <div id="gambleCard" class="card">?</div>
     <p id="gambleMsg"></p>
-    <div class="modeRow">
-      <button class="btn red" id="btnGambleRed">&#9829; RED</button>
-      <button class="btn black" id="btnGambleBlack">&#9824; BLACK</button>
-    </div>
+    <div id="gStage"></div>
+    <div class="modeRow" id="gChoices"></div>
     <div class="modeRow"><button class="btn big" id="btnGambleCollect">COLLECT</button></div>
     <p class="tiny" id="gambleTimer"></p>
   </div>
@@ -207,6 +205,7 @@
 <script src="js/art.js"></script>
 <script src="js/audio.js"></script>
 <script src="js/fx.js"></script>
+<script src="js/challenges.js"></script>
 <script src="js/lunar.js"></script>
 <script src="js/themes.js"></script>
 <script src="js/game.js"></script>

@@ -215,16 +215,55 @@ header h1{
 #wheelWrap{display:flex; justify-content:center; margin:6px 0}
 #wheelCanvas{width:300px; height:300px; max-width:100%}
 #wheelResult{min-height:24px; font-size:clamp(16px,4.6vw,22px); font-weight:800; color:var(--goldhi)}
-.card{
-  width:96px; height:130px; margin:8px auto; border-radius:12px; border:3px solid #ffe680; background:#fff6e0; color:#4a0509;
-  display:flex; align-items:center; justify-content:center; font-size:64px; font-weight:900; box-shadow:0 8px 20px rgba(0,0,0,.5);
-  transition:transform .45s ease, background .2s ease;
-}
-.card.flip{transform:rotateY(90deg)}
-.card.red{color:#e0262b; background:#fff} .card.black{color:#111; background:#fff}
-.btn.red{background:linear-gradient(180deg,#ff8a8a,#e0262b 50%,#8c0d14); color:#fff; border-color:#4a0509; box-shadow:0 4px 0 #4a0509; min-height:64px; font-size:20px}
-.btn.black{background:linear-gradient(180deg,#6a6a6a,#1a1a1a 50%,#000); color:#fff; border-color:#000; box-shadow:0 4px 0 #000; min-height:64px; font-size:20px}
+/* challenge screens */
+#gStage{min-height:150px; display:flex; align-items:center; justify-content:center; margin:6px 0 4px}
+.btn.gch{min-height:68px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; line-height:1.1}
+.btn.gch b{font-size:22px; letter-spacing:.06em} .btn.gch span{font-size:12px; font-weight:600; opacity:.8; letter-spacing:.04em; text-transform:none}
+.btn.gch.dark{background:linear-gradient(180deg,#6a6a6a,#1a1a1a 50%,#000); color:#fff; border-color:#000; box-shadow:0 4px 0 #000}
+.btn.gch.red{background:linear-gradient(180deg,#ff8a8a,#e0262b 50%,#8c0d14); color:#fff; border-color:#4a0509; box-shadow:0 4px 0 #4a0509}
 .btn:disabled{opacity:.45}
+.ghint{width:100%; text-align:center; font-size:14px; color:var(--muted); padding:8px 0}
+.gtag{position:absolute; margin-top:150px; font-weight:900; letter-spacing:.2em; color:var(--goldhi); font-size:18px}
+/* coin */
+.gcoin{width:120px; height:120px; border-radius:50%; border:4px solid #8a5a00; background:radial-gradient(circle at 35% 30%,#fff7c2,#f5c518 55%,#a86f00); box-shadow:0 10px 24px rgba(0,0,0,.5), inset 0 0 0 6px rgba(138,90,0,.35); display:flex; align-items:center; justify-content:center}
+.gcoin .face{font-size:56px; font-weight:900; color:#5a3a00; font-family:'PingFang SC','Hiragino Sans','Noto Sans CJK SC',serif}
+.gcoin.flip{animation:coinflip 1.3s cubic-bezier(.2,.7,.3,1)}
+.gcoin.tails{background:radial-gradient(circle at 35% 30%,#fff,#e0262b 55%,#8c0d14)} .gcoin.tails .face{color:#fff}
+@keyframes coinflip{0%{transform:rotateX(0) scale(1)}50%{transform:rotateX(1800deg) scale(1.25)}100%{transform:rotateX(3600deg) scale(1)}}
+/* die */
+.gdie{width:110px; height:110px; border-radius:20px; background:linear-gradient(180deg,#fff,#e8e8e8); border:3px solid #999; box-shadow:0 10px 24px rgba(0,0,0,.5); display:grid; grid-template-columns:repeat(3,1fr); padding:14px; gap:4px}
+.gdie i{border-radius:50%; background:transparent} .gdie i.on{background:#1a1a1a}
+.gdie.big{border-color:#f5c518; box-shadow:0 0 22px rgba(245,197,24,.7)} .gdie.small{border-color:#6ee7ff; box-shadow:0 0 22px rgba(110,231,255,.6)}
+.gdie.shake{animation:dieshake .12s linear infinite}
+@keyframes dieshake{0%{transform:rotate(-8deg) translateX(-4px)}50%{transform:rotate(8deg) translateX(4px)}100%{transform:rotate(-8deg) translateX(-4px)}}
+/* cards */
+.gcards,.grps{display:flex; gap:26px; align-items:flex-end; justify-content:center}
+.gcardWrap,.ghandWrap{display:flex; flex-direction:column; align-items:center; gap:6px} .gcardWrap span,.ghandWrap span{font-size:12px; letter-spacing:.2em; color:var(--muted)}
+.gcard{width:84px; height:116px; border-radius:12px; border:3px solid #ffe680; background:#fff; color:#4a0509; display:flex; align-items:center; justify-content:center; font-size:52px; font-weight:900; box-shadow:0 8px 20px rgba(0,0,0,.5); transition:transform .45s ease}
+.gcard.back{background:repeating-linear-gradient(45deg,#8c0d14 0 6px,#b3121a 6px 12px); color:#ffe680; font-size:40px}
+.gcard.flip{transform:rotateY(90deg)}
+.gcard.winc,.ghand.winc{border-color:#2fd06a; box-shadow:0 0 22px rgba(47,208,106,.7)}
+/* cups */
+.gcups{display:flex; gap:40px; justify-content:center; align-items:flex-end; height:150px; position:relative}
+.gcupWrap{position:relative; width:90px; height:120px; transition:transform .25s ease}
+.gcups.swap .gcupWrap:first-child{transform:translateX(130px)} .gcups.swap .gcupWrap:last-child{transform:translateX(-130px)}
+.gcup{position:absolute; left:5px; right:5px; top:0; height:96px; border-radius:10px 10px 40px 40px; background:linear-gradient(90deg,#8a5a00,#f5c518 40%,#ffe680 55%,#b07a00); border:2px solid #7a5200; box-shadow:0 8px 18px rgba(0,0,0,.5); transition:transform .5s ease; z-index:2}
+.gcupWrap.lift .gcup{transform:translateY(-52px) rotate(-10deg)}
+.gingot{position:absolute; left:0; right:0; bottom:8px; text-align:center; font-weight:900; color:#4a0509; font-size:15px; height:34px; line-height:34px; z-index:1}
+.gingot.has{background:radial-gradient(circle,#fff7c2,#f5c518 60%,#b07a00); border-radius:50% 50% 12px 12px; margin:0 12px; box-shadow:0 0 18px rgba(245,197,24,.8)}
+/* light ring */
+.gring{position:relative; width:180px; height:180px}
+.gdot{position:absolute; left:calc(50% - 16px); top:calc(50% - 16px); width:32px; height:32px; border-radius:50%; border:2px solid #7a5200; transition:box-shadow .1s}
+.gdot.gold{background:#f5c518} .gdot.black{background:#222; border-color:#000}
+.gdot.lit{box-shadow:0 0 0 5px #fff, 0 0 26px 8px rgba(255,255,255,.9); transform-origin:center}
+.gdot.final{animation:pop .5s ease-out 3}
+.gringLabel{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; text-align:center; font-size:13px; letter-spacing:.18em; color:var(--goldhi); font-weight:800; line-height:1.3}
+/* rock paper scissors */
+.ghand{width:96px; height:96px; border-radius:50%; border:3px solid #ffe680; background:#fff6e0; display:flex; align-items:center; justify-content:center; font-size:54px; box-shadow:0 8px 20px rgba(0,0,0,.5)}
+.ghand.shake{animation:dieshake .16s linear infinite} .ghand.tie{border-color:#9fd3ff}
+/* lucky packets (challenge) */
+.gpackets{display:flex; gap:12px; justify-content:center; width:100%}
+.gpacket{width:84px; height:112px; aspect-ratio:auto}
 .bonusRow{display:grid; grid-template-columns:1fr; gap:2px; background:rgba(255,246,224,.07); border-radius:12px; padding:8px 10px; text-align:left}
 .bonusRow b{font-size:15px; color:#fff3cf} .bonusRow span{font-size:13px; color:var(--muted); line-height:1.4}
 #paysList h3{font-size:14px; letter-spacing:.2em; color:var(--gold); margin:14px 0 4px; text-align:center}
